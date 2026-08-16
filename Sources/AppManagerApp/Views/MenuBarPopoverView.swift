@@ -130,26 +130,23 @@ public struct MenuBarPopoverView: View {
     private var headerBar: some View {
         VStack(spacing: 8) {
             HStack {
-                // Global Proxy Status Indicator & Quick Toggle
+                // Global Proxy Quick Toggle (Circle Indicator)
                 Button {
                     viewModel.toggleGlobalProxy()
                 } label: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(viewModel.globalProxy.isEnabled ? Color.blue : Color.gray)
-                            .frame(width: 8, height: 8)
-                        Text(viewModel.globalProxy.isEnabled ? "Proxy: \(viewModel.globalProxy.urlString)" : "Proxy: Disabled")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(viewModel.globalProxy.isEnabled ? .blue : .secondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(viewModel.globalProxy.isEnabled ? Color.blue.opacity(0.12) : Color.gray.opacity(0.12))
-                    .cornerRadius(12)
+                    Circle()
+                        .fill(viewModel.globalProxy.isEnabled ? Color.blue : Color.gray)
+                        .frame(width: 10, height: 10)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Toggle Global Proxy On/Off")
+                .focusable(false)
+                .help(viewModel.globalProxy.isEnabled
+                    ? "Global Proxy: Enabled (\(viewModel.globalProxy.urlString)) — Click to disable"
+                    : "Global Proxy: Disabled — Click to enable")
+                .accessibilityLabel("Toggle Global Proxy")
+                .accessibilityValue(viewModel.globalProxy.isEnabled ? "Enabled" : "Disabled")
 
                 Spacer()
 
@@ -160,8 +157,10 @@ public struct MenuBarPopoverView: View {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
+                .focusable(false)
                 .help("Rescan Applications")
 
                 // Global Settings Button
@@ -171,8 +170,10 @@ public struct MenuBarPopoverView: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
+                .focusable(false)
                 .help("Settings")
             }
 
