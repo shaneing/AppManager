@@ -4,8 +4,15 @@ import AppKit
 import Combine
 import AppManagerCore
 
+public enum PopoverScreen: Equatable {
+    case mainList
+    case globalSettings
+    case appConfig(AppItem)
+}
+
 @MainActor
 public final class MenuBarViewModel: ObservableObject {
+    @Published public var activeScreen: PopoverScreen = .mainList
     @Published public var searchText: String = ""
     @Published public var discoveredApps: [AppItem] = []
     @Published public var pinnedAppBundleIds: Set<String> = []
@@ -204,6 +211,18 @@ public final class MenuBarViewModel: ObservableObject {
         if let idx = discoveredApps.firstIndex(where: { $0.bundleIdentifier == app.bundleIdentifier }) {
             discoveredApps[idx].customConfig = config
         }
+    }
+
+    public func openGlobalSettings() {
+        self.activeScreen = .globalSettings
+    }
+
+    public func openAppConfig(for app: AppItem) {
+        self.activeScreen = .appConfig(app)
+    }
+
+    public func navigateBack() {
+        self.activeScreen = .mainList
     }
 
     private func showMessage(_ msg: String) {

@@ -8,6 +8,22 @@ public struct MenuBarPopoverView: View {
     public init() {}
 
     public var body: some View {
+        Group {
+            switch viewModel.activeScreen {
+            case .mainList:
+                mainListView
+            case .globalSettings:
+                GlobalSettingsView(viewModel: viewModel)
+            case .appConfig(let app):
+                AppConfigView(app: app, viewModel: viewModel)
+            }
+        }
+        .frame(width: 380)
+    }
+
+    // MARK: - Main Application List View
+
+    private var mainListView: some View {
         VStack(spacing: 0) {
             // Header Bar
             headerBar
@@ -116,13 +132,6 @@ public struct MenuBarPopoverView: View {
             // Footer Bar
             footerBar
         }
-        .frame(width: 380)
-        .sheet(item: $viewModel.selectedAppForConfig) { app in
-            AppConfigSheet(app: app, viewModel: viewModel)
-        }
-        .sheet(isPresented: $viewModel.isShowingSettings) {
-            GlobalSettingsView(viewModel: viewModel)
-        }
     }
 
     // MARK: - Header Bar
@@ -165,7 +174,7 @@ public struct MenuBarPopoverView: View {
 
                 // Global Settings Button
                 Button {
-                    viewModel.isShowingSettings = true
+                    viewModel.openGlobalSettings()
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 12))

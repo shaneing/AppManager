@@ -142,7 +142,7 @@ public struct AppRowView: View {
 
                 // Config Settings Button
                 Button {
-                    viewModel.selectedAppForConfig = app
+                    viewModel.openAppConfig(for: app)
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 11))

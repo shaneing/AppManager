@@ -3,7 +3,6 @@ import AppManagerCore
 
 public struct GlobalSettingsView: View {
     @ObservedObject var viewModel: MenuBarViewModel
-    @Environment(\.dismiss) private var dismiss
 
     @State private var proxyEndpoint: String
     @State private var isEnabled: Bool
@@ -23,16 +22,41 @@ public struct GlobalSettingsView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Title
+        VStack(alignment: .leading, spacing: 0) {
+            // Header with Back Button
             HStack(spacing: 8) {
-                Image(systemName: "gearshape.2.fill")
-                    .font(.title3)
-                    .foregroundColor(.blue)
-                Text("Global Settings")
-                    .font(.headline)
+                Button {
+                    viewModel.navigateBack()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundColor(.accentColor)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
+
+                HStack(spacing: 6) {
+                    Image(systemName: "gearshape.2.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(.blue)
+                    Text("Global Settings")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                Spacer()
+
+                // Balance the back button
+                Color.clear
+                    .frame(width: 44, height: 16)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
 
             Divider()
 
@@ -71,28 +95,35 @@ public struct GlobalSettingsView: View {
                         .padding(4)
                     }
                 }
+                .padding(12)
             }
+            .frame(maxHeight: 380)
 
             Divider()
 
-            // Actions
+            // Footer Actions
             HStack {
-                Spacer()
                 Button("Cancel") {
-                    dismiss()
+                    viewModel.navigateBack()
                 }
-                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+                Spacer()
 
                 Button("Save Settings") {
                     save()
-                    dismiss()
+                    viewModel.navigateBack()
                 }
                 .buttonStyle(.borderedProminent)
+                .font(.system(size: 12))
                 .keyboardShortcut(.defaultAction)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .padding(14)
-        .frame(width: 380, height: 420)
+        .frame(width: 380)
     }
 
     private func save() {
@@ -117,4 +148,3 @@ public struct GlobalSettingsView: View {
         viewModel.reloadApplications()
     }
 }
-
