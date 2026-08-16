@@ -30,7 +30,10 @@ public final class StatusBarController: NSObject {
         pop.contentSize = NSSize(width: 380, height: 480)
         pop.behavior = .transient
         pop.animates = true
-        pop.contentViewController = NSHostingController(rootView: MenuBarPopoverView())
+        let hostingController = NSHostingController(rootView: MenuBarPopoverView())
+        pop.contentViewController = hostingController
+        // Pre-warm the view hierarchy so AppKit and SwiftUI layout are initialized before first click
+        _ = hostingController.view
         self.popover = pop
     }
 

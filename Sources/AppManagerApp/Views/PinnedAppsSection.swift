@@ -6,7 +6,7 @@ public struct PinnedAppsSection: View {
 
     public var body: some View {
         if !viewModel.pinnedApps.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            LazyVStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 11))
@@ -19,7 +19,7 @@ public struct PinnedAppsSection: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 6)
 
-                VStack(spacing: 2) {
+                LazyVStack(spacing: 2) {
                     ForEach(viewModel.pinnedApps) { app in
                         AppRowView(app: app, viewModel: viewModel)
                     }

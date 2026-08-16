@@ -13,6 +13,7 @@ public final class MenuBarViewModel: ObservableObject {
     @Published public var selectedAppForConfig: AppItem? = nil
     @Published public var isShowingSettings: Bool = false
     @Published public var statusMessage: String? = nil
+    @Published public var isLoading: Bool = false
 
     private let discoveryService = AppDiscoveryService.shared
     private let lifecycleManager = AppLifecycleManager.shared
@@ -33,20 +34,33 @@ public final class MenuBarViewModel: ObservableObject {
     }
 
     public func reloadApplications() {
+        self.isLoading = true
         let settings = configStore.settings
-        let rawApps = discoveryService.discoverApplications(
-            scanUserApps: settings.scanUserApplications,
-            scanSystemApps: settings.scanSystemApplications,
-            additionalDirectories: settings.scanAdditionalDirectories
-        )
+        let discovery = self.discoveryService
+        let pinnedIds = self.pinnedAppBundleIds
+        let lifecycle = self.lifecycleManager
+        let store = self.configStore
 
-        self.discoveredApps = rawApps.map { app in
-            var updated = app
-            updated.isPinned = self.pinnedAppBundleIds.contains(app.bundleIdentifier)
-            updated.isRunning = self.lifecycleManager.isAppRunning(bundleIdentifier: app.bundleIdentifier)
-            updated.pid = self.lifecycleManager.pid(for: app.bundleIdentifier)
-            updated.customConfig = self.configStore.customConfig(for: app.bundleIdentifier)
-            return updated
+        Task.detached(priority: .userInitiated) {
+            let rawApps = discovery.discoverApplications(
+                scanUserApps: settings.scanUserApplications,
+                scanSystemApps: settings.scanSystemApplications,
+                additionalDirectories: settings.scanAdditionalDirectories
+            )
+
+            let mappedApps = rawApps.map { app -> AppItem in
+                var updated = app
+                updated.isPinned = pinnedIds.contains(app.bundleIdentifier)
+                updated.isRunning = lifecycle.isAppRunning(bundleIdentifier: app.bundleIdentifier)
+                updated.pid = lifecycle.pid(for: app.bundleIdentifier)
+                updated.customConfig = store.customConfig(for: app.bundleIdentifier)
+                return updated
+            }
+
+            await MainActor.run {
+                self.discoveredApps = mappedApps
+                self.isLoading = false
+            }
         }
     }
 

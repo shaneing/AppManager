@@ -32,67 +32,79 @@ public struct MenuBarPopoverView: View {
 
             // Application List Scroll View
             ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    // 1. Pinned Apps Section
-                    PinnedAppsSection(viewModel: viewModel)
-
-                    // 2. Running Apps Section (if any unpinned running)
-                    if !viewModel.runningApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 8, height: 8)
-                                Text("RUNNING APPS (\(viewModel.runningApps.count))")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.top, 4)
-
-                            ForEach(viewModel.runningApps) { app in
-                                AppRowView(app: app, viewModel: viewModel)
-                            }
-
-                            Divider()
-                                .padding(.vertical, 4)
-                        }
-                    }
-
-                    // 3. All / Other Installed Apps Section
-                    if !viewModel.unpinnedInstalledApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                                Text("ALL INSTALLED APPS (\(viewModel.unpinnedInstalledApps.count))")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.top, 4)
-
-                            ForEach(viewModel.unpinnedInstalledApps) { app in
-                                AppRowView(app: app, viewModel: viewModel)
-                            }
-                        }
-                    }
-
-                    // Empty state when search produces no results
-                    if viewModel.filteredApps.isEmpty {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    if viewModel.isLoading && viewModel.discoveredApps.isEmpty {
                         VStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 28))
-                                .foregroundColor(.secondary)
-                            Text("No applications found")
-                                .font(.subheadline)
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Discovering applications...")
+                                .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
+                    } else {
+                        // 1. Pinned Apps Section
+                        PinnedAppsSection(viewModel: viewModel)
+
+                        // 2. Running Apps Section (if any unpinned running)
+                        if !viewModel.runningApps.isEmpty {
+                            LazyVStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 8, height: 8)
+                                    Text("RUNNING APPS (\(viewModel.runningApps.count))")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.top, 4)
+
+                                ForEach(viewModel.runningApps) { app in
+                                    AppRowView(app: app, viewModel: viewModel)
+                                }
+
+                                Divider()
+                                    .padding(.vertical, 4)
+                            }
+                        }
+
+                        // 3. All / Other Installed Apps Section
+                        if !viewModel.unpinnedInstalledApps.isEmpty {
+                            LazyVStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "square.grid.2x2")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                    Text("ALL INSTALLED APPS (\(viewModel.unpinnedInstalledApps.count))")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.top, 4)
+
+                                ForEach(viewModel.unpinnedInstalledApps) { app in
+                                    AppRowView(app: app, viewModel: viewModel)
+                                }
+                            }
+                        }
+
+                        // Empty state when search produces no results
+                        if viewModel.filteredApps.isEmpty && !viewModel.isLoading {
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.secondary)
+                                Text("No applications found")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                        }
                     }
                 }
                 .padding(.vertical, 6)
@@ -197,9 +209,18 @@ public struct MenuBarPopoverView: View {
 
     private var footerBar: some View {
         HStack {
-            Text("\(viewModel.discoveredApps.count) apps discovered")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+            if viewModel.isLoading {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .frame(width: 12, height: 12)
+                Text("Scanning...")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            } else {
+                Text("\(viewModel.discoveredApps.count) apps discovered")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
 
             Spacer()
 
