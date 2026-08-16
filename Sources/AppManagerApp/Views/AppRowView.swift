@@ -35,12 +35,30 @@ public struct AppRowView: View {
 
                 HStack(spacing: 6) {
                     if app.isRunning {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 6, height: 6)
-                        Text(app.pid != nil ? "PID \(app.pid!)" : "Running")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                        if let proxyURL = app.activeProxyURLString {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 6, height: 6)
+                            Text(app.pid != nil ? "PID \(app.pid!)" : "Running")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+
+                            Text("Proxy")
+                                .font(.system(size: 9, weight: .semibold))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.blue.opacity(0.15))
+                                .foregroundColor(.blue)
+                                .cornerRadius(3)
+                                .help("Routing over Proxy: \(proxyURL)")
+                        } else {
+                            Circle()
+                                .fill(Color.yellow)
+                                .frame(width: 6, height: 6)
+                            Text(app.pid != nil ? "PID \(app.pid!) · Direct" : "Direct")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                     } else {
                         Circle()
                             .fill(Color.gray.opacity(0.5))

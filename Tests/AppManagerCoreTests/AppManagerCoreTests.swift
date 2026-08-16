@@ -165,4 +165,82 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertNotNil(resolvedTerminal)
         XCTAssertEqual(resolvedTerminal?.strategy, .environmentVar, "Standard apps should resolve to environmentVar by default")
     }
+
+    // MARK: - Managed Session & Lifecycle Tests
+
+    func testManagedAppSessionModel() {
+        let session = ManagedAppSession(
+            bundleIdentifier: "com.example.app",
+            pid: 12345,
+            isProxied: true,
+            proxyURLString: "http://127.0.0.1:7890",
+            strategy: .environmentVar
+        )
+
+        XCTAssertEqual(session.bundleIdentifier, "com.example.app")
+        XCTAssertEqual(session.pid, 12345)
+        XCTAssertTrue(session.isProxied)
+        XCTAssertEqual(session.proxyURLString, "http://127.0.0.1:7890")
+        XCTAssertEqual(session.strategy, .environmentVar)
+    }
+
+    func testAppLifecycleManagerManagedSessionRegistration() {
+        let lifecycle = AppLifecycleManager()
+        let testBundleId = "com.test.managedapp"
+
+        XCTAssertFalse(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+        XCTAssertNil(lifecycle.pid(for: testBundleId))
+        XCTAssertNil(lifecycle.managedSession(for: testBundleId))
+
+        let session = ManagedAppSession(
+            bundleIdentifier: testBundleId,
+            pid: 99999,
+            isProxied: true,
+            proxyURLString: "http://127.0.0.1:7890",
+            strategy: .launchFlags
+        )
+
+        let registerExpectation = expectation(description: "Register managed session")
+        lifecycle.registerManagedSession(session)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertTrue(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+            XCTAssertEqual(lifecycle.pid(for: testBundleId), 99999)
+            XCTAssertEqual(lifecycle.managedSession(for: testBundleId)?.proxyURLString, "http://127.0.0.1:7890")
+            registerExpectation.fulfill()
+        }
+
+        waitForExpectations(timeout: 1.0)
+
+        let unregisterExpectation = expectation(description: "Unregister managed session")
+        lifecycle.unregisterManagedSession(bundleIdentifier: testBundleId)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertFalse(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+            XCTAssertNil(lifecycle.pid(for: testBundleId))
+            XCTAssertNil(lifecycle.managedSession(for: testBundleId))
+            unregisterExpectation.fulfill()
+        }
+
+        waitForExpectations(timeout: 1.0)
+    }
+
+    func testAppItemProxyStateInitialization() {
+        let app = AppItem(
+            name: "Proxied App",
+            bundleIdentifier: "com.example.proxied",
+            bundleURL: URL(fileURLWithPath: "/Applications/Test.app"),
+            isRunning: true,
+            pid: 54321,
+            isManagedByAppManager: true,
+            activeProxyURLString: "http://127.0.0.1:7890",
+            activeStrategy: .launchFlags
+        )
+
+        XCTAssertTrue(app.isRunning)
+        XCTAssertEqual(app.pid, 54321)
+        XCTAssertTrue(app.isManagedByAppManager)
+        XCTAssertEqual(app.activeProxyURLString, "http://127.0.0.1:7890")
+        XCTAssertEqual(app.activeStrategy, .launchFlags)
+    }
 }

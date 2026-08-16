@@ -7,13 +7,16 @@ public final class AppLauncherService: @unchecked Sendable {
 
     private let configStore: ConfigurationStore
     private let netExtManager: NetworkExtensionManager
+    private let lifecycleManager: AppLifecycleManager
 
     public init(
         configStore: ConfigurationStore = .shared,
-        netExtManager: NetworkExtensionManager = .shared
+        netExtManager: NetworkExtensionManager = .shared,
+        lifecycleManager: AppLifecycleManager = .shared
     ) {
         self.configStore = configStore
         self.netExtManager = netExtManager
+        self.lifecycleManager = lifecycleManager
     }
 
     /// Launches an application normally using default system routing.
@@ -24,9 +27,19 @@ public final class AppLauncherService: @unchecked Sendable {
 
         NSWorkspace.shared.openApplication(
             at: app.bundleURL,
-            configuration: configuration,
-            completionHandler: nil
-        )
+            configuration: configuration
+        ) { runningApp, _ in
+            if let runningApp = runningApp {
+                let session = ManagedAppSession(
+                    bundleIdentifier: app.bundleIdentifier,
+                    pid: runningApp.processIdentifier,
+                    isProxied: false,
+                    proxyURLString: nil,
+                    strategy: nil
+                )
+                self.lifecycleManager.registerManagedSession(session)
+            }
+        }
         return true
     }
 
@@ -134,6 +147,20 @@ public final class AppLauncherService: @unchecked Sendable {
 
                 do {
                     try process.run()
+                    let pid = process.processIdentifier
+                    let session = ManagedAppSession(
+                        bundleIdentifier: app.bundleIdentifier,
+                        pid: pid,
+                        isProxied: true,
+                        proxyURLString: proxyUrl,
+                        strategy: .environmentVar
+                    )
+                    self.lifecycleManager.registerManagedSession(session)
+
+                    process.terminationHandler = { [weak self] _ in
+                        self?.lifecycleManager.unregisterManagedSession(bundleIdentifier: app.bundleIdentifier)
+                    }
+
                     DispatchQueue.main.async {
                         completion?(.success(()))
                     }
@@ -152,6 +179,14 @@ public final class AppLauncherService: @unchecked Sendable {
 
             do {
                 try openProcess.run()
+                let session = ManagedAppSession(
+                    bundleIdentifier: app.bundleIdentifier,
+                    pid: openProcess.processIdentifier,
+                    isProxied: true,
+                    proxyURLString: proxyUrl,
+                    strategy: .environmentVar
+                )
+                self.lifecycleManager.registerManagedSession(session)
                 completion?(.success(()))
             } catch {
                 completion?(.failure(error))
@@ -181,10 +216,20 @@ public final class AppLauncherService: @unchecked Sendable {
         NSWorkspace.shared.openApplication(
             at: app.bundleURL,
             configuration: configuration
-        ) { _, error in
+        ) { runningApp, error in
             if let error = error {
                 completion?(.failure(error))
             } else {
+                if let runningApp = runningApp {
+                    let session = ManagedAppSession(
+                        bundleIdentifier: app.bundleIdentifier,
+                        pid: runningApp.processIdentifier,
+                        isProxied: true,
+                        proxyURLString: proxy.urlString,
+                        strategy: .launchFlags
+                    )
+                    self.lifecycleManager.registerManagedSession(session)
+                }
                 completion?(.success(()))
             }
         }
@@ -208,8 +253,28 @@ public final class AppLauncherService: @unchecked Sendable {
                 self.launchNormally(app: app)
                 completion?(.failure(error))
             case .success:
-                self.launchNormally(app: app)
-                completion?(.success(()))
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+                NSWorkspace.shared.openApplication(
+                    at: app.bundleURL,
+                    configuration: configuration
+                ) { runningApp, error in
+                    if let runningApp = runningApp {
+                        let session = ManagedAppSession(
+                            bundleIdentifier: app.bundleIdentifier,
+                            pid: runningApp.processIdentifier,
+                            isProxied: true,
+                            proxyURLString: proxy.urlString,
+                            strategy: .networkExtension
+                        )
+                        self.lifecycleManager.registerManagedSession(session)
+                    }
+                    if let error = error {
+                        completion?(.failure(error))
+                    } else {
+                        completion?(.success(()))
+                    }
+                }
             }
         }
     }

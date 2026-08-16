@@ -51,9 +51,19 @@ public final class MenuBarViewModel: ObservableObject {
             let mappedApps = rawApps.map { app -> AppItem in
                 var updated = app
                 updated.isPinned = pinnedIds.contains(app.bundleIdentifier)
-                updated.isRunning = lifecycle.isAppRunning(bundleIdentifier: app.bundleIdentifier)
+                let isRunning = lifecycle.isAppRunning(bundleIdentifier: app.bundleIdentifier)
+                updated.isRunning = isRunning
                 updated.pid = lifecycle.pid(for: app.bundleIdentifier)
                 updated.customConfig = store.customConfig(for: app.bundleIdentifier)
+                if let session = lifecycle.managedSession(for: app.bundleIdentifier) {
+                    updated.isManagedByAppManager = true
+                    updated.activeProxyURLString = session.isProxied ? session.proxyURLString : nil
+                    updated.activeStrategy = session.strategy
+                } else {
+                    updated.isManagedByAppManager = false
+                    updated.activeProxyURLString = nil
+                    updated.activeStrategy = nil
+                }
                 return updated
             }
 
@@ -65,18 +75,27 @@ public final class MenuBarViewModel: ObservableObject {
     }
 
     private func setupLifecycleBindings() {
-        lifecycleManager.$runningApps
+        Publishers.CombineLatest(lifecycleManager.$runningApps, lifecycleManager.$managedSessions)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] runningMap in
+            .sink { [weak self] runningMap, managedMap in
                 guard let self = self else { return }
                 for i in self.discoveredApps.indices {
                     let bundleId = self.discoveredApps[i].bundleIdentifier
-                    if let runningApp = runningMap[bundleId] {
-                        self.discoveredApps[i].isRunning = true
-                        self.discoveredApps[i].pid = runningApp.processIdentifier
+                    let runningApp = runningMap[bundleId]
+                    let session = managedMap[bundleId]
+
+                    let isRunning = runningApp != nil || session != nil
+                    self.discoveredApps[i].isRunning = isRunning
+                    self.discoveredApps[i].pid = session?.pid ?? runningApp?.processIdentifier
+
+                    if let session = session {
+                        self.discoveredApps[i].isManagedByAppManager = true
+                        self.discoveredApps[i].activeProxyURLString = session.isProxied ? session.proxyURLString : nil
+                        self.discoveredApps[i].activeStrategy = session.strategy
                     } else {
-                        self.discoveredApps[i].isRunning = false
-                        self.discoveredApps[i].pid = nil
+                        self.discoveredApps[i].isManagedByAppManager = false
+                        self.discoveredApps[i].activeProxyURLString = nil
+                        self.discoveredApps[i].activeStrategy = nil
                     }
                 }
             }
@@ -122,11 +141,24 @@ public final class MenuBarViewModel: ObservableObject {
     }
 
     public func launchAppNormally(app: AppItem) {
+        if app.isRunning {
+            showMessage("ℹ️ \(app.name) is already running")
+            return
+        }
         launcherService.launchNormally(app: app)
         showMessage("Launched \(app.name)")
     }
 
     public func launchAppWithProxy(app: AppItem) {
+        if app.isRunning {
+            if let proxyURL = app.activeProxyURLString {
+                showMessage("ℹ️ \(app.name) is already running with Proxy (\(proxyURL))")
+            } else {
+                showMessage("⚠️ \(app.name) is already running unproxied. Stop it first to apply HTTP Proxy.")
+            }
+            return
+        }
+
         launcherService.launchWithProxy(app: app) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {

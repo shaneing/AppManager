@@ -13,6 +13,9 @@ public struct AppItem: Identifiable, Hashable, Sendable {
     public var pid: pid_t?
     public var customConfig: AppCustomProxyConfig?
     public var isElectronOrChromium: Bool
+    public var isManagedByAppManager: Bool
+    public var activeProxyURLString: String?
+    public var activeStrategy: ProxyStrategy?
 
     public init(
         id: String? = nil,
@@ -24,7 +27,10 @@ public struct AppItem: Identifiable, Hashable, Sendable {
         isRunning: Bool = false,
         pid: pid_t? = nil,
         customConfig: AppCustomProxyConfig? = nil,
-        isElectronOrChromium: Bool = false
+        isElectronOrChromium: Bool = false,
+        isManagedByAppManager: Bool = false,
+        activeProxyURLString: String? = nil,
+        activeStrategy: ProxyStrategy? = nil
     ) {
         self.id = id ?? bundleIdentifier
         self.name = name
@@ -36,6 +42,9 @@ public struct AppItem: Identifiable, Hashable, Sendable {
         self.pid = pid
         self.customConfig = customConfig
         self.isElectronOrChromium = isElectronOrChromium
+        self.isManagedByAppManager = isManagedByAppManager
+        self.activeProxyURLString = activeProxyURLString
+        self.activeStrategy = activeStrategy
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -47,6 +56,9 @@ public struct AppItem: Identifiable, Hashable, Sendable {
         lhs.isRunning == rhs.isRunning &&
         lhs.pid == rhs.pid &&
         lhs.isPinned == rhs.isPinned &&
-        lhs.customConfig == rhs.customConfig
+        lhs.customConfig == rhs.customConfig &&
+        lhs.isManagedByAppManager == rhs.isManagedByAppManager &&
+        lhs.activeProxyURLString == rhs.activeProxyURLString &&
+        lhs.activeStrategy == rhs.activeStrategy
     }
 }

@@ -7,6 +7,7 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
     public static let shared = AppLifecycleManager()
 
     @Published public private(set) var runningApps: [String: NSRunningApplication] = [:]
+    @Published public private(set) var managedSessions: [String: ManagedAppSession] = [:]
     private var cancellables = Set<AnyCancellable>()
     private let queue = DispatchQueue(label: "com.appmanager.lifecyclemanager", attributes: .concurrent)
 
@@ -30,39 +31,82 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
 
         DispatchQueue.main.async {
             self.runningApps = appMap
+            // Clean up managed sessions whose processes are no longer alive
+            for (bundleId, session) in self.managedSessions {
+                if kill(session.pid, 0) != 0 && self.runningApps[bundleId] == nil {
+                    self.managedSessions.removeValue(forKey: bundleId)
+                }
+            }
         }
+    }
+
+    // MARK: - Managed Sessions
+
+    /// Registers a session for an application launched by AppManager.
+    public func registerManagedSession(_ session: ManagedAppSession) {
+        DispatchQueue.main.async {
+            self.managedSessions[session.bundleIdentifier] = session
+        }
+    }
+
+    /// Removes a managed session when an application terminates.
+    public func unregisterManagedSession(bundleIdentifier: String) {
+        DispatchQueue.main.async {
+            self.managedSessions.removeValue(forKey: bundleIdentifier)
+        }
+    }
+
+    /// Returns the managed session for a bundle identifier if active.
+    public func managedSession(for bundleIdentifier: String) -> ManagedAppSession? {
+        return managedSessions[bundleIdentifier]
     }
 
     /// Checks if an application with the given bundle identifier is currently running.
     public func isAppRunning(bundleIdentifier: String) -> Bool {
-        return runningApps[bundleIdentifier] != nil
+        return runningApps[bundleIdentifier] != nil || managedSessions[bundleIdentifier] != nil
     }
 
     /// Retrieves the PID of a running application.
     public func pid(for bundleIdentifier: String) -> pid_t? {
-        return runningApps[bundleIdentifier]?.processIdentifier
+        return managedSessions[bundleIdentifier]?.pid ?? runningApps[bundleIdentifier]?.processIdentifier
     }
 
-    /// Gracefully terminates an application (`NSRunningApplication.terminate()`).
+    /// Gracefully terminates an application (`NSRunningApplication.terminate()` or `SIGTERM`).
     @discardableResult
     public func terminateApp(bundleIdentifier: String) -> Bool {
-        guard let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first else {
-            return false
+        let managed = managedSessions[bundleIdentifier]
+        if let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            let success = runningApp.terminate()
+            if !success, let pid = managed?.pid ?? Optional(runningApp.processIdentifier) {
+                kill(pid, SIGTERM)
+            }
+            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+            return true
+        } else if let managed = managed {
+            kill(managed.pid, SIGTERM)
+            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+            return true
         }
-        return runningApp.terminate()
+        return false
     }
 
     /// Force terminates an application (`NSRunningApplication.forceTerminate()` or `SIGKILL`).
     @discardableResult
     public func forceKillApp(bundleIdentifier: String) -> Bool {
-        guard let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first else {
-            return false
+        let managed = managedSessions[bundleIdentifier]
+        if let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            let success = runningApp.forceTerminate()
+            if !success, let pid = managed?.pid ?? Optional(runningApp.processIdentifier) {
+                kill(pid, SIGKILL)
+            }
+            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+            return true
+        } else if let managed = managed {
+            kill(managed.pid, SIGKILL)
+            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+            return true
         }
-        let success = runningApp.forceTerminate()
-        if !success {
-            kill(runningApp.processIdentifier, SIGKILL)
-        }
-        return true
+        return false
     }
 
     // MARK: - Notifications
@@ -100,6 +144,7 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
 
         DispatchQueue.main.async {
             self.runningApps.removeValue(forKey: bundleId)
+            self.managedSessions.removeValue(forKey: bundleId)
         }
     }
 }
