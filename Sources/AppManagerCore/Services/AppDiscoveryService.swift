@@ -97,7 +97,7 @@ public final class AppDiscoveryService: @unchecked Sendable {
 
         let executablePath = bundle.executablePath
 
-        let isElectronOrChromium = checkIfElectronOrChromium(bundleURL: bundleURL, bundleId: bundleIdentifier)
+        let engineType = detectEngineType(bundleURL: bundleURL, bundleId: bundleIdentifier)
 
         return AppItem(
             name: displayName,
@@ -108,27 +108,39 @@ public final class AppDiscoveryService: @unchecked Sendable {
             isRunning: false,
             pid: nil,
             customConfig: nil,
-            isElectronOrChromium: isElectronOrChromium
+            engineType: engineType
         )
     }
 
-    private func checkIfElectronOrChromium(bundleURL: URL, bundleId: String) -> Bool {
+    private func detectEngineType(bundleURL: URL, bundleId: String) -> AppEngineType {
         let frameworksURL = bundleURL.appendingPathComponent("Contents/Frameworks", isDirectory: true)
 
         let electronFramework = frameworksURL.appendingPathComponent("Electron Framework.framework")
-        let cefFramework = frameworksURL.appendingPathComponent("Chromium Embedded Framework.framework")
+        if fileManager.fileExists(atPath: electronFramework.path) {
+            return .electron
+        }
 
-        if fileManager.fileExists(atPath: electronFramework.path) || fileManager.fileExists(atPath: cefFramework.path) {
-            return true
+        let cefFramework = frameworksURL.appendingPathComponent("Chromium Embedded Framework.framework")
+        if fileManager.fileExists(atPath: cefFramework.path) {
+            return .chromium
         }
 
         let lowerId = bundleId.lowercased()
-        if lowerId.contains("chrome") || lowerId.contains("brave") || lowerId.contains("edge") ||
-            lowerId.contains("slack") || lowerId.contains("discord") || lowerId.contains("vscode") ||
-            lowerId.contains("postman") || lowerId.contains("vscodium") {
-            return true
+
+        // Electron bundle ID heuristics
+        if lowerId.contains("slack") || lowerId.contains("discord") || lowerId.contains("vscode") ||
+            lowerId.contains("postman") || lowerId.contains("vscodium") || lowerId.contains("antigravity") ||
+            lowerId.contains("obsidian") || lowerId.contains("notion") || lowerId.contains("figma") {
+            return .electron
         }
 
-        return false
+        // Chromium browser bundle ID heuristics
+        if lowerId.contains("chrome") || lowerId.contains("brave") || lowerId.contains("edge") ||
+            lowerId.contains("arc") || lowerId.contains("chromium") || lowerId.contains("opera") ||
+            lowerId.contains("vivaldi") {
+            return .chromium
+        }
+
+        return .native
     }
 }

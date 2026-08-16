@@ -53,28 +53,28 @@ public final class AppLauncherService: @unchecked Sendable {
                 return nil
             case .customProxy:
                 if let custom = customConfig.customProxy, custom.isEnabled {
-                    let strategy = resolveStrategy(customConfig.strategy, isElectronOrChromium: app.isElectronOrChromium)
+                    let strategy = resolveStrategy(customConfig.strategy, engineType: app.engineType)
                     return (custom, strategy)
                 }
             case .inheritGlobal:
                 if globalSettings.globalProxy.isEnabled {
-                    let strategy = resolveStrategy(customConfig.strategy, isElectronOrChromium: app.isElectronOrChromium)
+                    let strategy = resolveStrategy(customConfig.strategy, engineType: app.engineType)
                     return (globalSettings.globalProxy, strategy)
                 }
             }
         }
 
         if globalSettings.globalProxy.isEnabled {
-            let strategy = resolveStrategy(.auto, isElectronOrChromium: app.isElectronOrChromium)
+            let strategy = resolveStrategy(.auto, engineType: app.engineType)
             return (globalSettings.globalProxy, strategy)
         }
 
         return nil
     }
 
-    private func resolveStrategy(_ strategy: ProxyStrategy, isElectronOrChromium: Bool) -> ProxyStrategy {
+    private func resolveStrategy(_ strategy: ProxyStrategy, engineType: AppEngineType) -> ProxyStrategy {
         if strategy == .auto {
-            return isElectronOrChromium ? .launchFlags : .environmentVar
+            return engineType == .chromium ? .launchFlags : .environmentVar
         }
         return strategy
     }
@@ -93,7 +93,7 @@ public final class AppLauncherService: @unchecked Sendable {
             return
         }
 
-        let strategy = effective?.strategy ?? (app.isElectronOrChromium ? .launchFlags : .environmentVar)
+        let strategy = effective?.strategy ?? (app.isChromium ? .launchFlags : .environmentVar)
 
         switch strategy {
         case .launchFlags:
@@ -103,7 +103,7 @@ public final class AppLauncherService: @unchecked Sendable {
         case .networkExtension:
             launchWithStrategyC(app: app, proxy: proxy, completion: completion)
         case .auto:
-            if app.isElectronOrChromium {
+            if app.isChromium {
                 launchWithStrategyB(app: app, proxy: proxy, completion: completion)
             } else {
                 launchWithStrategyA(app: app, proxy: proxy, completion: completion)

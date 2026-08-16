@@ -2,11 +2,11 @@ import Foundation
 
 /// Defines how network proxying is injected into an application.
 public enum ProxyStrategy: String, Codable, CaseIterable, Sendable {
-    /// Automatically selects Strategy B (flags) for Chromium/Electron, and Strategy A (env vars) for others.
+    /// Automatically selects Strategy B (flags) for Chromium browsers, and Strategy A (env vars) for Electron and native apps.
     case auto = "auto"
     /// Strategy A: Injects HTTP_PROXY, HTTPS_PROXY, ALL_PROXY into process environment variables.
     case environmentVar = "environmentVar"
-    /// Strategy B: Injects `--proxy-server="<url>"` launch arguments for Chromium and Electron apps.
+    /// Strategy B: Injects `--proxy-server="<url>"` launch arguments for Chromium browsers.
     case launchFlags = "launchFlags"
     /// Strategy C: Native NEAppProxyProvider Network Extension socket-level routing.
     case networkExtension = "networkExtension"

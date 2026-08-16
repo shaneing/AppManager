@@ -146,24 +146,35 @@ final class AppManagerCoreTests: XCTestCase {
             name: "Google Chrome",
             bundleIdentifier: "com.google.Chrome",
             bundleURL: URL(fileURLWithPath: "/Applications/Google Chrome.app"),
-            isElectronOrChromium: true
+            engineType: .chromium
+        )
+
+        let antigravityApp = AppItem(
+            name: "Antigravity",
+            bundleIdentifier: "com.google.antigravity",
+            bundleURL: URL(fileURLWithPath: "/Applications/Antigravity.app"),
+            engineType: .electron
         )
 
         let terminalApp = AppItem(
             name: "Terminal",
             bundleIdentifier: "com.apple.Terminal",
             bundleURL: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
-            isElectronOrChromium: false
+            engineType: .native
         )
 
         // With default global proxy enabled
         let resolvedChrome = launcher.resolveEffectiveProxy(for: chromeApp)
         XCTAssertNotNil(resolvedChrome)
-        XCTAssertEqual(resolvedChrome?.strategy, .launchFlags, "Chromium apps should resolve to launchFlags by default")
+        XCTAssertEqual(resolvedChrome?.strategy, .launchFlags, "Chromium browser apps should resolve to launchFlags by default")
+
+        let resolvedAntigravity = launcher.resolveEffectiveProxy(for: antigravityApp)
+        XCTAssertNotNil(resolvedAntigravity)
+        XCTAssertEqual(resolvedAntigravity?.strategy, .environmentVar, "Electron apps should resolve to environmentVar by default")
 
         let resolvedTerminal = launcher.resolveEffectiveProxy(for: terminalApp)
         XCTAssertNotNil(resolvedTerminal)
-        XCTAssertEqual(resolvedTerminal?.strategy, .environmentVar, "Standard apps should resolve to environmentVar by default")
+        XCTAssertEqual(resolvedTerminal?.strategy, .environmentVar, "Standard native apps should resolve to environmentVar by default")
     }
 
     // MARK: - Managed Session & Lifecycle Tests

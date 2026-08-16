@@ -1,6 +1,24 @@
 import Foundation
 import AppKit
 
+/// Application runtime framework / engine type.
+public enum AppEngineType: String, Codable, CaseIterable, Sendable {
+    case native = "native"
+    case electron = "electron"
+    case chromium = "chromium"
+
+    public var displayName: String {
+        switch self {
+        case .native:
+            return "Native"
+        case .electron:
+            return "Electron"
+        case .chromium:
+            return "Chromium"
+        }
+    }
+}
+
 /// Represents an application on macOS discovered from the filesystem or running processes.
 public struct AppItem: Identifiable, Hashable, Sendable {
     public let id: String
@@ -12,10 +30,18 @@ public struct AppItem: Identifiable, Hashable, Sendable {
     public var isRunning: Bool
     public var pid: pid_t?
     public var customConfig: AppCustomProxyConfig?
-    public var isElectronOrChromium: Bool
+    public var engineType: AppEngineType
     public var isManagedByAppManager: Bool
     public var activeProxyURLString: String?
     public var activeStrategy: ProxyStrategy?
+
+    public var isChromium: Bool {
+        engineType == .chromium
+    }
+
+    public var isElectron: Bool {
+        engineType == .electron
+    }
 
     public init(
         id: String? = nil,
@@ -27,7 +53,7 @@ public struct AppItem: Identifiable, Hashable, Sendable {
         isRunning: Bool = false,
         pid: pid_t? = nil,
         customConfig: AppCustomProxyConfig? = nil,
-        isElectronOrChromium: Bool = false,
+        engineType: AppEngineType = .native,
         isManagedByAppManager: Bool = false,
         activeProxyURLString: String? = nil,
         activeStrategy: ProxyStrategy? = nil
@@ -41,7 +67,7 @@ public struct AppItem: Identifiable, Hashable, Sendable {
         self.isRunning = isRunning
         self.pid = pid
         self.customConfig = customConfig
-        self.isElectronOrChromium = isElectronOrChromium
+        self.engineType = engineType
         self.isManagedByAppManager = isManagedByAppManager
         self.activeProxyURLString = activeProxyURLString
         self.activeStrategy = activeStrategy

@@ -68,14 +68,25 @@ public struct AppRowView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    if app.isElectronOrChromium {
-                        Text("Electron/Chrome")
+                    switch app.engineType {
+                    case .electron:
+                        Text("Electron")
                             .font(.system(size: 9, weight: .semibold))
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Color.purple.opacity(0.15))
                             .foregroundColor(.purple)
                             .cornerRadius(3)
+                    case .chromium:
+                        Text("Chromium")
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.15))
+                            .foregroundColor(.blue)
+                            .cornerRadius(3)
+                    case .native:
+                        EmptyView()
                     }
                 }
             }
