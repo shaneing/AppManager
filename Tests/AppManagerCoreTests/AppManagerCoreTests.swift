@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import AppManagerCore
 
 final class AppManagerCoreTests: XCTestCase {
@@ -81,6 +82,32 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertEqual(savedConfig?.customProxy?.host, "10.0.0.1")
         XCTAssertEqual(savedConfig?.customProxy?.port, 8888)
         XCTAssertEqual(savedConfig?.extraLaunchArgs, ["--incognito"])
+    }
+
+    func testConfigurationStorePublisher() {
+        let testConfigURL = tempDirectory.appendingPathComponent("publisher-config.json")
+        let store = ConfigurationStore(customStorageURL: testConfigURL)
+        var receivedSettings: [AppSettings] = []
+        var cancellables = Set<AnyCancellable>()
+
+        let expectation = expectation(description: "Receive settings update")
+        expectation.expectedFulfillmentCount = 2 // initial value + 1 update
+
+        store.settingsPublisher
+            .sink { settings in
+                receivedSettings.append(settings)
+                expectation.fulfill()
+            }
+            .store(in: &cancellables)
+
+        store.update { settings in
+            settings.globalProxy.isEnabled = false
+        }
+
+        waitForExpectations(timeout: 2.0)
+        XCTAssertEqual(receivedSettings.count, 2)
+        XCTAssertTrue(receivedSettings[0].globalProxy.isEnabled)
+        XCTAssertFalse(receivedSettings[1].globalProxy.isEnabled)
     }
 
     // MARK: - AppDiscoveryService Tests

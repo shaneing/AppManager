@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// Manages loading, saving, and observing application configuration settings to disk.
 public final class ConfigurationStore: @unchecked Sendable {
@@ -8,6 +9,12 @@ public final class ConfigurationStore: @unchecked Sendable {
     private let storageURL: URL
     private let queue = DispatchQueue(label: "com.appmanager.configurationstore", attributes: .concurrent)
     private var cachedSettings: AppSettings
+    private let settingsSubject: CurrentValueSubject<AppSettings, Never>
+
+    /// Publisher that emits whenever settings are modified or loaded.
+    public var settingsPublisher: AnyPublisher<AppSettings, Never> {
+        settingsSubject.eraseToAnyPublisher()
+    }
 
     public init(
         fileManager: FileManager = .default,
@@ -23,7 +30,9 @@ public final class ConfigurationStore: @unchecked Sendable {
             self.storageURL = appFolder.appendingPathComponent("config.json")
         }
 
-        self.cachedSettings = ConfigurationStore.loadFromDisk(url: self.storageURL, fileManager: fileManager)
+        let loaded = ConfigurationStore.loadFromDisk(url: self.storageURL, fileManager: fileManager)
+        self.cachedSettings = loaded
+        self.settingsSubject = CurrentValueSubject<AppSettings, Never>(loaded)
     }
 
     /// Current application settings in memory.
@@ -34,6 +43,7 @@ public final class ConfigurationStore: @unchecked Sendable {
         set {
             queue.async(flags: .barrier) {
                 self.cachedSettings = newValue
+                self.settingsSubject.send(newValue)
                 self.saveToDisk(newValue)
             }
         }
@@ -43,6 +53,7 @@ public final class ConfigurationStore: @unchecked Sendable {
     public func update(_ transform: (inout AppSettings) -> Void) {
         queue.sync(flags: .barrier) {
             transform(&self.cachedSettings)
+            self.settingsSubject.send(self.cachedSettings)
             self.saveToDisk(self.cachedSettings)
         }
     }

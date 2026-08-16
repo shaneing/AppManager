@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import Combine
+import AppManagerCore
 
 /// Manages the native macOS status bar item and dropdown popover.
 @MainActor
@@ -7,12 +9,14 @@ public final class StatusBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var eventMonitor: Any?
+    private var cancellables = Set<AnyCancellable>()
 
     public override init() {
         super.init()
         setupPopover()
         setupStatusItem()
         setupEventMonitor()
+        setupConfigurationObservation()
     }
 
     deinit {
@@ -31,16 +35,43 @@ public final class StatusBarController: NSObject {
     }
 
     private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "bolt.shield.fill", accessibilityDescription: "AppManager")
-            button.imagePosition = .imageLeading
-            button.title = " AppManager"
+            button.imagePosition = .imageOnly
+            button.title = ""
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         self.statusItem = item
+        
+        let initialSettings = ConfigurationStore.shared.settings
+        updateStatusItem(
+            isProxyEnabled: initialSettings.globalProxy.isEnabled,
+            proxyUrl: initialSettings.globalProxy.urlString
+        )
+    }
+
+    private func setupConfigurationObservation() {
+        ConfigurationStore.shared.settingsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] settings in
+                self?.updateStatusItem(
+                    isProxyEnabled: settings.globalProxy.isEnabled,
+                    proxyUrl: settings.globalProxy.urlString
+                )
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateStatusItem(isProxyEnabled: Bool, proxyUrl: String) {
+        guard let button = statusItem?.button else { return }
+        let symbolName = isProxyEnabled ? "bolt.shield.fill" : "bolt.shield"
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "AppManager") {
+            image.isTemplate = true
+            button.image = image
+        }
+        button.toolTip = isProxyEnabled ? "AppManager (Proxy Enabled: \(proxyUrl))" : "AppManager (Proxy Disabled)"
     }
 
     private func setupEventMonitor() {
