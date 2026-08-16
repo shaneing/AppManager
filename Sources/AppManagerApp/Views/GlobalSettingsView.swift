@@ -5,9 +5,7 @@ public struct GlobalSettingsView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var host: String
-    @State private var port: String
-    @State private var proxyProtocol: ProxyProtocol
+    @State private var proxyEndpoint: String
     @State private var isEnabled: Bool
     @State private var scanUserApps: Bool
     @State private var scanSystemApps: Bool
@@ -15,9 +13,8 @@ public struct GlobalSettingsView: View {
     public init(viewModel: MenuBarViewModel) {
         self.viewModel = viewModel
         let current = viewModel.globalProxy
-        _host = State(initialValue: current.host)
-        _port = State(initialValue: String(current.port))
-        _proxyProtocol = State(initialValue: current.proxyProtocol)
+        let initialEndpoint = current.urlString.isEmpty ? "\(current.host):\(current.port)" : current.urlString
+        _proxyEndpoint = State(initialValue: initialEndpoint)
         _isEnabled = State(initialValue: current.isEnabled)
 
         let settings = ConfigurationStore.shared.settings
@@ -26,60 +23,57 @@ public struct GlobalSettingsView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 12) {
             // Title
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "gearshape.2.fill")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(.blue)
-                Text("Global AppManager Settings")
-                    .font(.title3).bold()
+                Text("Global Settings")
+                    .font(.headline)
                 Spacer()
             }
 
             Divider()
 
-            // Global Proxy Configuration
-            GroupBox("Default Global Proxy") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Enable Global Proxy", isOn: $isEnabled)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Global Proxy Configuration
+                    GroupBox("Default Global Proxy") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Enable Global Proxy", isOn: $isEnabled)
 
-                    HStack(spacing: 8) {
-                        Picker("Protocol", selection: $proxyProtocol) {
-                            Text("HTTP").tag(ProxyProtocol.http)
-                            Text("HTTPS").tag(ProxyProtocol.https)
-                            Text("SOCKS5").tag(ProxyProtocol.socks5)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Proxy Server URL")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                TextField("http://127.0.0.1:7890", text: $proxyEndpoint)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Text("Example: http://127.0.0.1:7890 or 127.0.0.1:7890")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
-                        .frame(width: 130)
-
-                        TextField("Host", text: $host)
-                            .textFieldStyle(.roundedBorder)
-
-                        TextField("Port", text: $port)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 70)
+                        .padding(4)
                     }
 
-                    Text("Example: 127.0.0.1 : 7890 for Clash / Mihomo / Shadowsocks")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    // Application Discovery Directories
+                    GroupBox("Application Discovery") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("Scan ~/Applications (User)", isOn: $scanUserApps)
+                            Toggle("Scan /System/Applications (System)", isOn: $scanSystemApps)
+                            Text("/Applications is always scanned by default.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(4)
+                    }
                 }
-                .padding(8)
             }
 
-            // Application Discovery Directories
-            GroupBox("Application Discovery") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Scan ~/Applications (User Apps)", isOn: $scanUserApps)
-                    Toggle("Scan /System/Applications (System Apps)", isOn: $scanSystemApps)
-                    Text("/Applications is always scanned by default.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(8)
-            }
-
-            Spacer()
+            Divider()
 
             // Actions
             HStack {
@@ -97,17 +91,20 @@ public struct GlobalSettingsView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 440, height: 380)
+        .padding(14)
+        .frame(width: 380, height: 420)
     }
 
     private func save() {
-        let portInt = Int(port) ?? 7890
+        let current = viewModel.globalProxy
+        let parsed = ProxyConfig.parse(from: proxyEndpoint)
         let proxy = ProxyConfig(
-            host: host.trimmingCharacters(in: .whitespacesAndNewlines),
-            port: portInt,
-            proxyProtocol: proxyProtocol,
-            isEnabled: isEnabled
+            host: parsed?.host ?? current.host,
+            port: parsed?.port ?? current.port,
+            proxyProtocol: parsed?.proxyProtocol ?? current.proxyProtocol,
+            isEnabled: isEnabled,
+            authUsername: parsed?.authUsername ?? current.authUsername,
+            authPassword: parsed?.authPassword ?? current.authPassword
         )
 
         viewModel.updateGlobalProxy(proxy)
@@ -120,3 +117,4 @@ public struct GlobalSettingsView: View {
         viewModel.reloadApplications()
     }
 }
+

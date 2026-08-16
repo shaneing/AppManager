@@ -39,6 +39,18 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertEqual(parsed?.port, 7890)
         XCTAssertEqual(parsed?.proxyProtocol, .http)
 
+        let parsedNoScheme = ProxyConfig.parse(from: " 127.0.0.1:7890 \n")
+        XCTAssertNotNil(parsedNoScheme)
+        XCTAssertEqual(parsedNoScheme?.host, "127.0.0.1")
+        XCTAssertEqual(parsedNoScheme?.port, 7890)
+        XCTAssertEqual(parsedNoScheme?.proxyProtocol, .http)
+
+        let parsedLocalhost = ProxyConfig.parse(from: "localhost:8080")
+        XCTAssertNotNil(parsedLocalhost)
+        XCTAssertEqual(parsedLocalhost?.host, "localhost")
+        XCTAssertEqual(parsedLocalhost?.port, 8080)
+        XCTAssertEqual(parsedLocalhost?.proxyProtocol, .http)
+
         let parsedSocks = ProxyConfig.parse(from: "socks5://user:pass@192.168.1.1:1080")
         XCTAssertNotNil(parsedSocks)
         XCTAssertEqual(parsedSocks?.host, "192.168.1.1")
@@ -46,6 +58,9 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertEqual(parsedSocks?.proxyProtocol, .socks5)
         XCTAssertEqual(parsedSocks?.authUsername, "user")
         XCTAssertEqual(parsedSocks?.authPassword, "pass")
+
+        XCTAssertNil(ProxyConfig.parse(from: ""))
+        XCTAssertNil(ProxyConfig.parse(from: "   "))
     }
 
     // MARK: - ConfigurationStore Tests

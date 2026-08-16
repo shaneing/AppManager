@@ -8,9 +8,7 @@ public struct AppConfigSheet: View {
 
     @State private var mode: AppCustomProxyConfig.Mode
     @State private var strategy: ProxyStrategy
-    @State private var customHost: String
-    @State private var customPort: String
-    @State private var customProtocol: ProxyProtocol
+    @State private var customEndpoint: String
     @State private var extraArgs: String
     @State private var extraEnvKey: String = ""
     @State private var extraEnvVal: String = ""
@@ -25,9 +23,8 @@ public struct AppConfigSheet: View {
         _strategy = State(initialValue: currentConfig?.strategy ?? .auto)
 
         let proxy = currentConfig?.customProxy
-        _customHost = State(initialValue: proxy?.host ?? "127.0.0.1")
-        _customPort = State(initialValue: String(proxy?.port ?? 7890))
-        _customProtocol = State(initialValue: proxy?.proxyProtocol ?? .http)
+        let initialCustomEndpoint = proxy?.urlString ?? "http://127.0.0.1:7890"
+        _customEndpoint = State(initialValue: initialCustomEndpoint)
 
         _extraArgs = State(initialValue: currentConfig?.extraLaunchArgs.joined(separator: " ") ?? "")
         _extraEnvVars = State(initialValue: currentConfig?.extraEnvVars ?? [:])
@@ -65,22 +62,17 @@ public struct AppConfigSheet: View {
             // Custom Proxy Settings (if mode == .customProxy)
             if mode == .customProxy {
                 GroupBox("Custom Proxy Endpoint") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Picker("Protocol", selection: $customProtocol) {
-                                Text("HTTP").tag(ProxyProtocol.http)
-                                Text("HTTPS").tag(ProxyProtocol.https)
-                                Text("SOCKS5").tag(ProxyProtocol.socks5)
-                            }
-                            .frame(width: 140)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Proxy Server URL")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                            TextField("Host", text: $customHost)
-                                .textFieldStyle(.roundedBorder)
+                        TextField("http://127.0.0.1:7890", text: $customEndpoint)
+                            .textFieldStyle(.roundedBorder)
 
-                            TextField("Port", text: $customPort)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                        }
+                        Text("Example: http://127.0.0.1:7890 or 127.0.0.1:7890")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                     .padding(6)
                 }
@@ -132,17 +124,19 @@ public struct AppConfigSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 440, height: 460)
+        .padding(14)
+        .frame(width: 380, height: 440)
     }
 
     private func save() {
-        let portInt = Int(customPort) ?? 7890
+        let parsed = ProxyConfig.parse(from: customEndpoint)
         let proxy = ProxyConfig(
-            host: customHost.trimmingCharacters(in: .whitespacesAndNewlines),
-            port: portInt,
-            proxyProtocol: customProtocol,
-            isEnabled: true
+            host: parsed?.host ?? "127.0.0.1",
+            port: parsed?.port ?? 7890,
+            proxyProtocol: parsed?.proxyProtocol ?? .http,
+            isEnabled: true,
+            authUsername: parsed?.authUsername,
+            authPassword: parsed?.authPassword
         )
 
         let parsedArgs = extraArgs
