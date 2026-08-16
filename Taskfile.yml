@@ -1,0 +1,73 @@
+version: '3'
+
+vars:
+  APP_NAME: AppManager
+  BUNDLE_NAME: "{{.APP_NAME}}.app"
+  BUILD_DIR: build
+  BUNDLE_PATH: "{{.BUILD_DIR}}/{{.BUNDLE_NAME}}"
+  EXECUTABLE_PATH: ".build/release/{{.APP_NAME}}"
+  ENTITLEMENTS: "Sources/AppManagerApp/AppManager.entitlements"
+  INFO_PLIST: "Sources/AppManagerApp/Info.plist"
+
+tasks:
+  default:
+    desc: Build the debug binary
+    cmds:
+      - task: build
+
+  build:
+    desc: Build the debug binary with Swift Package Manager
+    cmds:
+      - swift build
+
+  build-release:
+    desc: Build the optimized release binary
+    cmds:
+      - swift build -c release
+
+  test:
+    desc: Run unit and integration test suites
+    cmds:
+      - swift test
+
+  run:
+    desc: Run the AppManager application directly
+    cmds:
+      - swift run {{.APP_NAME}}
+
+  bundle:
+    desc: Package release binary into a standalone macOS .app bundle
+    deps: [build-release]
+    cmds:
+      - echo "📦 Creating macOS App Bundle at {{.BUNDLE_PATH}}..."
+      - rm -rf {{.BUNDLE_PATH}}
+      - mkdir -p {{.BUNDLE_PATH}}/Contents/MacOS
+      - mkdir -p {{.BUNDLE_PATH}}/Contents/Resources
+      - cp {{.EXECUTABLE_PATH}} {{.BUNDLE_PATH}}/Contents/MacOS/{{.APP_NAME}}
+      - cp {{.INFO_PLIST}} {{.BUNDLE_PATH}}/Contents/Info.plist
+      - echo "APPL????" > {{.BUNDLE_PATH}}/Contents/PkgInfo
+      - chmod +x {{.BUNDLE_PATH}}/Contents/MacOS/{{.APP_NAME}}
+      - echo "✍️  Ad-hoc code signing {{.BUNDLE_NAME}}..."
+      - codesign --force --deep --sign - --entitlements {{.ENTITLEMENTS}} {{.BUNDLE_PATH}}
+      - echo "✅ Built {{.BUNDLE_PATH}} successfully!"
+
+  install:
+    desc: Build and install AppManager.app into ~/Applications
+    deps: [bundle]
+    cmds:
+      - mkdir -p ~/Applications
+      - cp -R {{.BUNDLE_PATH}} ~/Applications/
+      - echo "🚀 Installed {{.BUNDLE_NAME}} to ~/Applications/{{.BUNDLE_NAME}}"
+
+  open:
+    desc: Open the packaged .app bundle
+    deps: [bundle]
+    cmds:
+      - open {{.BUNDLE_PATH}}
+
+  clean:
+    desc: Clean build artifacts and caches
+    cmds:
+      - swift package clean
+      - rm -rf {{.BUILD_DIR}}
+      - echo "🧹 Cleaned build artifacts."

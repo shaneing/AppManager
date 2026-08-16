@@ -1,0 +1,32 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Swift Package Manager & Build Artifacts
+.build/
+build/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
+*.xcworkspace
+*.xcuserdata
+DerivedData/
+
+# IDE / Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OpenSpec & Agent Workflows
+openspec/
+.agent/
+
+# Local Logs & Temporary files
+*.log
+scratch/
