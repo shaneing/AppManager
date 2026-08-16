@@ -8,6 +8,8 @@ public struct GlobalSettingsView: View {
     @State private var isEnabled: Bool
     @State private var scanUserApps: Bool
     @State private var scanSystemApps: Bool
+    @State private var quitProxiedAppsOnExit: Bool
+    @State private var relaunchProxiedAppsOnProxyChange: Bool
 
     public init(viewModel: MenuBarViewModel) {
         self.viewModel = viewModel
@@ -19,6 +21,8 @@ public struct GlobalSettingsView: View {
         let settings = ConfigurationStore.shared.settings
         _scanUserApps = State(initialValue: settings.scanUserApplications)
         _scanSystemApps = State(initialValue: settings.scanSystemApplications)
+        _quitProxiedAppsOnExit = State(initialValue: settings.quitProxiedAppsOnExit)
+        _relaunchProxiedAppsOnProxyChange = State(initialValue: settings.relaunchProxiedAppsOnProxyChange)
     }
 
     public var body: some View {
@@ -83,6 +87,19 @@ public struct GlobalSettingsView: View {
                         .padding(4)
                     }
 
+                    // Lifecycle & Proxy Automation
+                    GroupBox("Lifecycle & Proxy Automation") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Quit proxied apps on AppManager exit", isOn: $quitProxiedAppsOnExit)
+                            Toggle("Relaunch proxied apps on Global Proxy change", isOn: $relaunchProxiedAppsOnProxyChange)
+
+                            Text("Direct (unproxied) applications will remain running and are not affected.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(4)
+                    }
+
                     // Application Discovery Directories
                     GroupBox("Application Discovery") {
                         VStack(alignment: .leading, spacing: 6) {
@@ -138,12 +155,14 @@ public struct GlobalSettingsView: View {
             authPassword: parsed?.authPassword ?? current.authPassword
         )
 
-        viewModel.updateGlobalProxy(proxy)
-
         ConfigurationStore.shared.update { settings in
             settings.scanUserApplications = scanUserApps
             settings.scanSystemApplications = scanSystemApps
+            settings.quitProxiedAppsOnExit = quitProxiedAppsOnExit
+            settings.relaunchProxiedAppsOnProxyChange = relaunchProxiedAppsOnProxyChange
         }
+
+        viewModel.updateGlobalProxy(proxy)
 
         viewModel.reloadApplications()
     }

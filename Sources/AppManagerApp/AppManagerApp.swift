@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import AppManagerCore
 
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -16,6 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBarController = StatusBarController()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if ConfigurationStore.shared.settings.quitProxiedAppsOnExit {
+            AppLifecycleManager.shared.terminateAllProxiedManagedSessions()
+        }
     }
 
     private static func setupMainMenu() {

@@ -254,4 +254,118 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertEqual(app.activeProxyURLString, "http://127.0.0.1:7890")
         XCTAssertEqual(app.activeStrategy, .launchFlags)
     }
+
+    // MARK: - AppSettings Lifecycle Preferences Tests
+
+    func testAppSettingsSerializationWithLifecyclePreferences() throws {
+        var settings = AppSettings()
+        XCTAssertTrue(settings.quitProxiedAppsOnExit)
+        XCTAssertTrue(settings.relaunchProxiedAppsOnProxyChange)
+
+        settings.quitProxiedAppsOnExit = false
+        settings.relaunchProxiedAppsOnProxyChange = false
+
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertFalse(decoded.quitProxiedAppsOnExit)
+        XCTAssertFalse(decoded.relaunchProxiedAppsOnProxyChange)
+
+        // Test decoding legacy JSON payload without new keys
+        let legacyJSON = "{\"pinnedBundleIdentifiers\":[]}".data(using: .utf8)!
+        let legacyDecoded = try JSONDecoder().decode(AppSettings.self, from: legacyJSON)
+        XCTAssertTrue(legacyDecoded.quitProxiedAppsOnExit, "Legacy JSON should default to true")
+        XCTAssertTrue(legacyDecoded.relaunchProxiedAppsOnProxyChange, "Legacy JSON should default to true")
+    }
+
+    // MARK: - Proxied Session Teardown Tests
+
+    func testTerminateAllProxiedManagedSessions() {
+        let lifecycle = AppLifecycleManager()
+        let proxiedBundleId = "com.test.proxied"
+        let directBundleId = "com.test.direct"
+
+        let proxiedSession = ManagedAppSession(
+            bundleIdentifier: proxiedBundleId,
+            pid: 99901,
+            isProxied: true,
+            proxyURLString: "http://127.0.0.1:7890",
+            strategy: .launchFlags
+        )
+
+        let directSession = ManagedAppSession(
+            bundleIdentifier: directBundleId,
+            pid: 99902,
+            isProxied: false,
+            proxyURLString: nil,
+            strategy: nil
+        )
+
+        let exp = expectation(description: "Register sessions")
+        lifecycle.registerManagedSession(proxiedSession)
+        lifecycle.registerManagedSession(directSession)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertNotNil(lifecycle.managedSession(for: proxiedBundleId))
+            XCTAssertNotNil(lifecycle.managedSession(for: directBundleId))
+            exp.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+
+        // Terminate only proxied sessions
+        lifecycle.terminateAllProxiedManagedSessions()
+
+        let verifyExp = expectation(description: "Verify proxied session terminated and direct preserved")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertNil(lifecycle.managedSession(for: proxiedBundleId), "Proxied session should be terminated/unregistered")
+            XCTAssertNotNil(lifecycle.managedSession(for: directBundleId), "Direct session should remain active")
+            verifyExp.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+    }
+
+    func testProxiedAppRelaunchCandidateFiltering() {
+        let proxiedInheritingApp = AppItem(
+            name: "Proxied Inheriting",
+            bundleIdentifier: "com.test.proxied.inherit",
+            bundleURL: URL(fileURLWithPath: "/Applications/A.app"),
+            isRunning: true,
+            isManagedByAppManager: true,
+            activeProxyURLString: "http://127.0.0.1:7890"
+        )
+
+        let directApp = AppItem(
+            name: "Direct App",
+            bundleIdentifier: "com.test.direct",
+            bundleURL: URL(fileURLWithPath: "/Applications/B.app"),
+            isRunning: true,
+            isManagedByAppManager: true,
+            activeProxyURLString: nil
+        )
+
+        let customProxyApp = AppItem(
+            name: "Custom Proxy App",
+            bundleIdentifier: "com.test.custom",
+            bundleURL: URL(fileURLWithPath: "/Applications/C.app"),
+            isRunning: true,
+            customConfig: AppCustomProxyConfig(mode: .customProxy, customProxy: ProxyConfig(host: "10.0.0.1", port: 8080)),
+            isManagedByAppManager: true,
+            activeProxyURLString: "http://10.0.0.1:8080"
+        )
+
+        let apps = [proxiedInheritingApp, directApp, customProxyApp]
+
+        let candidates = apps.filter { app in
+            guard app.isRunning,
+                  app.isManagedByAppManager,
+                  app.activeProxyURLString != nil else {
+                return false
+            }
+            let mode = app.customConfig?.mode ?? .inheritGlobal
+            return mode == .inheritGlobal
+        }
+
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertEqual(candidates.first?.bundleIdentifier, "com.test.proxied.inherit")
+    }
 }

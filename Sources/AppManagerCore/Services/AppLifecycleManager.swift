@@ -109,6 +109,42 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
         return false
     }
 
+    /// Gracefully terminates all active managed sessions that were launched with a proxy.
+    /// Direct applications (`isProxied == false`) are left running.
+    public func terminateAllProxiedManagedSessions() {
+        let proxiedBundleIds = managedSessions.values
+            .filter { $0.isProxied }
+            .map { $0.bundleIdentifier }
+
+        for bundleId in proxiedBundleIds {
+            terminateApp(bundleIdentifier: bundleId)
+        }
+    }
+
+    /// Asynchronously terminates an application and waits until the process has exited or timeout is reached.
+    @discardableResult
+    public func terminateAppAndWait(bundleIdentifier: String, timeout: TimeInterval = 1.5) async -> Bool {
+        terminateApp(bundleIdentifier: bundleIdentifier)
+
+        let pollInterval: UInt64 = 100_000_000 // 100ms
+        let start = Date()
+
+        while Date().timeIntervalSince(start) < timeout {
+            if !isAppRunning(bundleIdentifier: bundleIdentifier) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
+
+        // If still running after timeout, attempt force kill
+        if isAppRunning(bundleIdentifier: bundleIdentifier) {
+            forceKillApp(bundleIdentifier: bundleIdentifier)
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
+
+        return !isAppRunning(bundleIdentifier: bundleIdentifier)
+    }
+
     // MARK: - Notifications
 
     private func setupWorkspaceNotifications() {

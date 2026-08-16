@@ -194,15 +194,49 @@ public final class MenuBarViewModel: ObservableObject {
 
     public func toggleGlobalProxy() {
         globalProxy.isEnabled.toggle()
+        let updatedProxy = globalProxy
         configStore.update { settings in
-            settings.globalProxy.isEnabled = self.globalProxy.isEnabled
+            settings.globalProxy.isEnabled = updatedProxy.isEnabled
         }
+        relaunchProxiedAppsInheritingGlobalProxy(newProxy: updatedProxy)
     }
 
     public func updateGlobalProxy(_ config: ProxyConfig) {
         self.globalProxy = config
         configStore.update { settings in
             settings.globalProxy = config
+        }
+        relaunchProxiedAppsInheritingGlobalProxy(newProxy: config)
+    }
+
+    public func relaunchProxiedAppsInheritingGlobalProxy(newProxy: ProxyConfig) {
+        guard configStore.settings.relaunchProxiedAppsOnProxyChange else { return }
+
+        let candidates = discoveredApps.filter { app in
+            guard app.isRunning,
+                  app.isManagedByAppManager,
+                  app.activeProxyURLString != nil else {
+                return false
+            }
+            let mode = app.customConfig?.mode ?? .inheritGlobal
+            return mode == .inheritGlobal
+        }
+
+        guard !candidates.isEmpty else { return }
+
+        let count = candidates.count
+        showMessage("Relaunching \(count) proxied app\(count > 1 ? "s" : "") with updated proxy...")
+
+        Task {
+            for app in candidates {
+                await lifecycleManager.terminateAppAndWait(bundleIdentifier: app.bundleIdentifier)
+
+                if newProxy.isEnabled {
+                    launcherService.launchWithProxy(app: app, overrideProxy: newProxy)
+                } else {
+                    launcherService.launchNormally(app: app)
+                }
+            }
         }
     }
 
