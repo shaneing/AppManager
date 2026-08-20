@@ -35,15 +35,23 @@ tasks:
     cmds:
       - swift run {{.APP_NAME}}
 
+  build-hook:
+    desc: Build universal libAppProxyHook.dylib (arm64 + x86_64)
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - clang -dynamiclib -Wall -Wextra -O3 -I Sources/AppProxyHook/include -arch arm64 -arch x86_64 -o {{.BUILD_DIR}}/libAppProxyHook.dylib Sources/AppProxyHook/*.c
+      - echo "✅ Built {{.BUILD_DIR}}/libAppProxyHook.dylib (Universal 2)"
+
   bundle:
     desc: Package release binary into a standalone macOS .app bundle
-    deps: [build-release]
+    deps: [build-release, build-hook]
     cmds:
       - echo "📦 Creating macOS App Bundle at {{.BUNDLE_PATH}}..."
       - rm -rf {{.BUNDLE_PATH}}
       - mkdir -p {{.BUNDLE_PATH}}/Contents/MacOS
       - mkdir -p {{.BUNDLE_PATH}}/Contents/Resources
       - cp {{.EXECUTABLE_PATH}} {{.BUNDLE_PATH}}/Contents/MacOS/{{.APP_NAME}}
+      - cp {{.BUILD_DIR}}/libAppProxyHook.dylib {{.BUNDLE_PATH}}/Contents/Resources/libAppProxyHook.dylib
       - cp {{.INFO_PLIST}} {{.BUNDLE_PATH}}/Contents/Info.plist
       - echo "APPL????" > {{.BUNDLE_PATH}}/Contents/PkgInfo
       - chmod +x {{.BUNDLE_PATH}}/Contents/MacOS/{{.APP_NAME}}

@@ -14,10 +14,21 @@ let package = Package(
         .library(
             name: "AppManagerCore",
             targets: ["AppManagerCore"]
+        ),
+        .library(
+            name: "AppProxyHook",
+            type: .dynamic,
+            targets: ["AppProxyHook"]
         )
     ],
     dependencies: [],
     targets: [
+        .target(
+            name: "AppProxyHook",
+            dependencies: [],
+            path: "Sources/AppProxyHook",
+            publicHeadersPath: "include"
+        ),
         .target(
             name: "AppManagerCore",
             dependencies: [],

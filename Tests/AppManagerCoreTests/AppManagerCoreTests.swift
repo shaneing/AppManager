@@ -368,4 +368,88 @@ final class AppManagerCoreTests: XCTestCase {
         XCTAssertEqual(candidates.count, 1)
         XCTAssertEqual(candidates.first?.bundleIdentifier, "com.test.proxied.inherit")
     }
+
+    // MARK: - Strategy D (Dynamic Hook) & CodeSigning Tests
+
+    func testProxyStrategyDynamicLibHook() throws {
+        let strategy = ProxyStrategy.dynamicLibHook
+        XCTAssertEqual(strategy.rawValue, "dynamicLibHook")
+        XCTAssertTrue(strategy.displayName.contains("Strategy D") || strategy.displayName.contains("Dynamic Hook"))
+
+        // Codable round-trip
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let data = try encoder.encode(strategy)
+        let decoded = try decoder.decode(ProxyStrategy.self, from: data)
+        XCTAssertEqual(decoded, .dynamicLibHook)
+    }
+
+    func testStrategyDResolutionAndCustomConfig() {
+        let testConfigURL = tempDirectory.appendingPathComponent("test-d-config.json")
+        let store = ConfigurationStore(customStorageURL: testConfigURL)
+        let launcher = AppLauncherService(configStore: store)
+
+        let app = AppItem(
+            name: "Hook App",
+            bundleIdentifier: "com.test.hookapp",
+            bundleURL: URL(fileURLWithPath: "/Applications/HookApp.app"),
+            engineType: .native
+        )
+
+        // Custom config with Strategy D
+        let customConfig = AppCustomProxyConfig(
+            mode: .customProxy,
+            customProxy: ProxyConfig(host: "127.0.0.1", port: 9090),
+            strategy: .dynamicLibHook
+        )
+        store.setCustomConfig(customConfig, for: app.bundleIdentifier)
+
+        let resolved = launcher.resolveEffectiveProxy(for: app)
+        XCTAssertNotNil(resolved)
+        XCTAssertEqual(resolved?.strategy, .dynamicLibHook)
+        XCTAssertEqual(resolved?.proxy.port, 9090)
+    }
+
+    func testCodeSigningInfoCompatibility() {
+        // Not hardened -> compatible
+        let info1 = CodeSigningInfo(isSigned: true, hasHardenedRuntime: false, allowsDyldEnvironmentVariables: false)
+        XCTAssertTrue(info1.isCompatibleWithDynamicHook)
+
+        // Hardened but has dyld entitlement -> compatible
+        let info2 = CodeSigningInfo(isSigned: true, hasHardenedRuntime: true, allowsDyldEnvironmentVariables: true)
+        XCTAssertTrue(info2.isCompatibleWithDynamicHook)
+
+        // Hardened without dyld entitlement -> incompatible (needs re-signing)
+        let info3 = CodeSigningInfo(isSigned: true, hasHardenedRuntime: true, allowsDyldEnvironmentVariables: false)
+        XCTAssertFalse(info3.isCompatibleWithDynamicHook)
+
+        // Unsigned -> compatible
+        let info4 = CodeSigningInfo(isSigned: false, hasHardenedRuntime: false, allowsDyldEnvironmentVariables: false)
+        XCTAssertTrue(info4.isCompatibleWithDynamicHook)
+    }
+
+    func testCodeSigningServiceInspection() {
+        let service = CodeSigningService.shared
+        // Inspect a non-existent path
+        let nonExistentURL = URL(fileURLWithPath: "/NonExistent/App.app")
+        let infoNonExistent = service.inspectCodeSigning(bundleURL: nonExistentURL)
+        XCTAssertFalse(infoNonExistent.isSigned)
+
+        // Inspect Calculator or Safari if available
+        let calculatorURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
+        if FileManager.default.fileExists(atPath: calculatorURL.path) {
+            let infoCalc = service.inspectCodeSigning(bundleURL: calculatorURL)
+            XCTAssertTrue(infoCalc.isSigned)
+        }
+    }
+
+    func testHookLibraryResolution() {
+        let launcher = AppLauncherService.shared
+        let dylibPath = launcher.locateHookLibrary()
+        XCTAssertNotNil(dylibPath)
+        if let path = dylibPath {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+            XCTAssertTrue(path.hasSuffix("libAppProxyHook.dylib"))
+        }
+    }
 }

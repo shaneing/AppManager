@@ -149,11 +149,20 @@ public final class MenuBarViewModel: ObservableObject {
 
     public func launchAppNormally(app: AppItem) {
         if app.isRunning {
+            NSWorkspace.shared.open(app.bundleURL)
             showMessage("ℹ️ \(app.name) is already running")
             return
         }
-        launcherService.launchNormally(app: app)
-        showMessage("Launched \(app.name)")
+        launcherService.launchNormally(app: app) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.showMessage("Launched \(app.name)")
+                case .failure(let error):
+                    self?.showMessage("Launch Error: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     public func launchAppWithProxy(app: AppItem) {
@@ -257,6 +266,22 @@ public final class MenuBarViewModel: ObservableObject {
 
     public func navigateBack() {
         self.activeScreen = .mainList
+    }
+
+    public func checkCodeSigning(for app: AppItem) -> CodeSigningInfo {
+        return CodeSigningService.shared.inspectCodeSigning(bundleURL: app.bundleURL)
+    }
+
+    public func resignAppAdHoc(app: AppItem) async -> Result<Void, Error> {
+        showMessage("Re-signing \(app.name) ad-hoc...")
+        do {
+            try await CodeSigningService.shared.performAdHocResign(bundleURL: app.bundleURL)
+            showMessage("✅ Successfully re-signed \(app.name)")
+            return .success(())
+        } catch {
+            showMessage("❌ Failed to re-sign \(app.name): \(error.localizedDescription)")
+            return .failure(error)
+        }
     }
 
     private func showMessage(_ msg: String) {

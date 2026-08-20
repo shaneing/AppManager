@@ -10,6 +10,8 @@ public enum ProxyStrategy: String, Codable, CaseIterable, Sendable {
     case launchFlags = "launchFlags"
     /// Strategy C: Native NEAppProxyProvider Network Extension socket-level routing.
     case networkExtension = "networkExtension"
+    /// Strategy D: User-space POSIX socket dynamic library hooking via DYLD_INSERT_LIBRARIES.
+    case dynamicLibHook = "dynamicLibHook"
 
     public var displayName: String {
         switch self {
@@ -21,6 +23,8 @@ public enum ProxyStrategy: String, Codable, CaseIterable, Sendable {
             return "Strategy B (Launch Arguments)"
         case .networkExtension:
             return "Strategy C (Network Extension)"
+        case .dynamicLibHook:
+            return "Strategy D (Dynamic Hook / DYLD)"
         }
     }
 }

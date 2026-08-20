@@ -9,87 +9,98 @@ public struct AppRowView: View {
 
     public var body: some View {
         HStack(spacing: 10) {
-            // App Icon
-            AppIconView(bundleURL: app.bundleURL, size: 28)
-
-            // App Name and Status
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(app.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-
-                    if app.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.orange)
-                    }
-
-                    if app.customConfig != nil {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 9))
-                            .foregroundColor(.blue)
-                    }
+            // App Info & Icon (Clickable)
+            Button {
+                if app.isRunning {
+                    viewModel.openAppConfig(for: app)
+                } else {
+                    viewModel.launchAppNormally(app: app)
                 }
+            } label: {
+                HStack(spacing: 10) {
+                    AppIconView(bundleURL: app.bundleURL, size: 28)
 
-                HStack(spacing: 6) {
-                    if app.isRunning {
-                        if let proxyURL = app.activeProxyURLString {
-                            Circle()
-                                .fill(Color.blue)
-                                .frame(width: 6, height: 6)
-                            Text(app.pid != nil ? "PID \(app.pid!)" : "Running")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(app.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
 
-                            Text("Proxy")
-                                .font(.system(size: 9, weight: .semibold))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.blue.opacity(0.15))
-                                .foregroundColor(.blue)
-                                .cornerRadius(3)
-                                .help("Routing over Proxy: \(proxyURL)")
-                        } else {
-                            Circle()
-                                .fill(Color.yellow)
-                                .frame(width: 6, height: 6)
-                            Text(app.pid != nil ? "PID \(app.pid!) · Direct" : "Direct")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                            if app.isPinned {
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.orange)
+                            }
+
+                            if app.customConfig != nil {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.blue)
+                            }
                         }
-                    } else {
-                        Circle()
-                            .fill(Color.gray.opacity(0.5))
-                            .frame(width: 6, height: 6)
-                        Text("Stopped")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
 
-                    switch app.engineType {
-                    case .electron:
-                        Text("Electron")
-                            .font(.system(size: 9, weight: .semibold))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.purple.opacity(0.15))
-                            .foregroundColor(.purple)
-                            .cornerRadius(3)
-                    case .chromium:
-                        Text("Chromium")
-                            .font(.system(size: 9, weight: .semibold))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.blue.opacity(0.15))
-                            .foregroundColor(.blue)
-                            .cornerRadius(3)
-                    case .native:
-                        EmptyView()
+                        HStack(spacing: 6) {
+                            if app.isRunning {
+                                if let proxyURL = app.activeProxyURLString {
+                                    Circle()
+                                        .fill(Color.blue)
+                                        .frame(width: 6, height: 6)
+                                    Text(app.pid != nil ? "PID \(app.pid!)" : "Running")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+
+                                    Text("Proxy")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.blue.opacity(0.15))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(3)
+                                        .help("Routing over Proxy: \(proxyURL)")
+                                } else {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 6, height: 6)
+                                    Text(app.pid != nil ? "PID \(app.pid!) · Direct" : "Direct")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Circle()
+                                    .fill(Color.gray.opacity(0.5))
+                                    .frame(width: 6, height: 6)
+                                Text("Stopped")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            switch app.engineType {
+                            case .electron:
+                                Text("Electron")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.purple.opacity(0.15))
+                                    .foregroundColor(.purple)
+                                    .cornerRadius(3)
+                            case .chromium:
+                                Text("Chromium")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.blue.opacity(0.15))
+                                    .foregroundColor(.blue)
+                                    .cornerRadius(3)
+                            case .native:
+                                EmptyView()
+                            }
+                        }
                     }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
