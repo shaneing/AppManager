@@ -452,4 +452,101 @@ final class AppManagerCoreTests: XCTestCase {
             XCTAssertTrue(path.hasSuffix("libAppProxyHook.dylib"))
         }
     }
+
+    // MARK: - Termination & Escalating Lifecycle Tests
+
+    func testAppLifecycleManagerMultiStageTermination() {
+        let lifecycle = AppLifecycleManager()
+        let testBundleId = "com.test.terminationapp"
+
+        // Register dummy session
+        let session = ManagedAppSession(
+            bundleIdentifier: testBundleId,
+            pid: 99990,
+            isProxied: false
+        )
+        lifecycle.registerManagedSession(session)
+
+        let exp = expectation(description: "Register dummy session")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertTrue(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+            exp.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+
+        // Test terminateApp
+        let didTerminate = lifecycle.terminateApp(bundleIdentifier: testBundleId)
+        XCTAssertTrue(didTerminate)
+
+        let exp2 = expectation(description: "Verify session unregistered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertNil(lifecycle.managedSession(for: testBundleId))
+            exp2.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+    }
+
+    func testAppLifecycleManagerForceKillCleansState() {
+        let lifecycle = AppLifecycleManager()
+        let testBundleId = "com.test.forcekillapp"
+
+        let session = ManagedAppSession(
+            bundleIdentifier: testBundleId,
+            pid: 99991,
+            isProxied: true,
+            proxyURLString: "http://127.0.0.1:7890"
+        )
+        lifecycle.registerManagedSession(session)
+
+        let exp = expectation(description: "Register session for force kill")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertTrue(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+            exp.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+
+        let didForceKill = lifecycle.forceKillApp(bundleIdentifier: testBundleId)
+        XCTAssertTrue(didForceKill)
+
+        let exp2 = expectation(description: "Verify immediate state removal after force kill")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            XCTAssertFalse(lifecycle.isAppRunning(bundleIdentifier: testBundleId))
+            XCTAssertNil(lifecycle.managedSession(for: testBundleId))
+            exp2.fulfill()
+        }
+        waitForExpectations(timeout: 1.0)
+    }
+
+    func testAppLifecycleManagerTerminateAndWaitNonExistent() async {
+        let lifecycle = AppLifecycleManager()
+        let testBundleId = "com.nonexistent.app.\(UUID().uuidString)"
+
+        let exited = await lifecycle.terminateAppAndWait(bundleIdentifier: testBundleId, timeout: 0.2)
+        XCTAssertTrue(exited, "A non-running app should immediately evaluate as exited")
+    }
+
+    func testLiveAppTerminationIfInstalled() async {
+        let testAppURL = URL(fileURLWithPath: "/Applications/Raycast.app")
+        guard FileManager.default.fileExists(atPath: testAppURL.path) else { return }
+
+        let bundleId = "com.raycast.macos"
+        let lifecycle = AppLifecycleManager()
+
+        // Launch app
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", testAppURL.path]
+        try? process.run()
+        process.waitUntilExit()
+
+        // Allow app to spin up
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+        XCTAssertTrue(lifecycle.isAppRunning(bundleIdentifier: bundleId), "Raycast should be running after launch")
+
+        // Test escalating terminateAppAndWait
+        let terminated = await lifecycle.terminateAppAndWait(bundleIdentifier: bundleId, timeout: 2.0)
+        XCTAssertTrue(terminated, "Raycast should be terminated cleanly")
+        XCTAssertFalse(lifecycle.isAppRunning(bundleIdentifier: bundleId), "Raycast should no longer be running")
+    }
 }

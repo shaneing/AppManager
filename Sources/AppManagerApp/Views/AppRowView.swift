@@ -108,7 +108,11 @@ public struct AppRowView: View {
             HStack(spacing: 4) {
                 if app.isRunning {
                     Button {
-                        viewModel.stopApp(app: app)
+                        if NSEvent.modifierFlags.contains(.option) {
+                            viewModel.forceKillApp(app: app)
+                        } else {
+                            viewModel.stopApp(app: app)
+                        }
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 11, weight: .bold))
@@ -118,7 +122,7 @@ public struct AppRowView: View {
                             .cornerRadius(5)
                     }
                     .buttonStyle(.plain)
-                    .help("Stop Application")
+                    .help("Stop Application (Option-Click to Force Kill)")
                 } else {
                     Button {
                         viewModel.launchAppNormally(app: app)
@@ -182,5 +186,33 @@ public struct AppRowView: View {
         .background(isHovered ? Color.gray.opacity(0.08) : Color.clear)
         .cornerRadius(6)
         .onHover { isHovered = $0 }
+        .contextMenu {
+            if app.isRunning {
+                Button("Stop Gracefully") {
+                    viewModel.stopApp(app: app)
+                }
+                Button(role: .destructive) {
+                    viewModel.forceKillApp(app: app)
+                } label: {
+                    Label("Force Kill (SIGKILL)", systemImage: "xmark.octagon.fill")
+                }
+                Divider()
+            } else {
+                Button("Launch Normally") {
+                    viewModel.launchAppNormally(app: app)
+                }
+                Button("Launch with Proxy") {
+                    viewModel.launchAppWithProxy(app: app)
+                }
+                Divider()
+            }
+
+            Button(app.isPinned ? "Unpin Application" : "Pin Application") {
+                viewModel.togglePin(app: app)
+            }
+            Button("Configure Proxy & Settings...") {
+                viewModel.openAppConfig(for: app)
+            }
+        }
     }
 }

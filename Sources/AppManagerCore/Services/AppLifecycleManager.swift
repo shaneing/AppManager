@@ -63,50 +63,89 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
 
     /// Checks if an application with the given bundle identifier is currently running.
     public func isAppRunning(bundleIdentifier: String) -> Bool {
-        return runningApps[bundleIdentifier] != nil || managedSessions[bundleIdentifier] != nil
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).filter { !$0.isTerminated }
+        if !instances.isEmpty { return true }
+        if let running = runningApps[bundleIdentifier], !running.isTerminated { return true }
+        if managedSessions[bundleIdentifier] != nil {
+            return true
+        }
+        return false
     }
 
     /// Retrieves the PID of a running application.
     public func pid(for bundleIdentifier: String) -> pid_t? {
-        return managedSessions[bundleIdentifier]?.pid ?? runningApps[bundleIdentifier]?.processIdentifier
+        if let sessionPid = managedSessions[bundleIdentifier]?.pid {
+            return sessionPid
+        }
+        if let activeApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first(where: { !$0.isTerminated }) {
+            return activeApp.processIdentifier
+        }
+        if let running = runningApps[bundleIdentifier], !running.isTerminated {
+            return running.processIdentifier
+        }
+        return nil
     }
 
-    /// Gracefully terminates an application (`NSRunningApplication.terminate()` or `SIGTERM`).
+    /// Gracefully terminates an application (`NSRunningApplication.terminate()` or `SIGTERM`) across all matching instances.
     @discardableResult
     public func terminateApp(bundleIdentifier: String) -> Bool {
-        let managed = managedSessions[bundleIdentifier]
-        if let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
-            let success = runningApp.terminate()
-            if !success, let pid = managed?.pid ?? Optional(runningApp.processIdentifier) {
-                kill(pid, SIGTERM)
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        var didAttempt = false
+
+        for app in instances {
+            let success = app.terminate()
+            if !success {
+                kill(app.processIdentifier, SIGTERM)
             }
-            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
-            return true
-        } else if let managed = managed {
-            kill(managed.pid, SIGTERM)
-            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
-            return true
+            didAttempt = true
         }
-        return false
+
+        if let runningApp = runningApps[bundleIdentifier], !instances.contains(runningApp) {
+            let success = runningApp.terminate()
+            if !success {
+                kill(runningApp.processIdentifier, SIGTERM)
+            }
+            didAttempt = true
+        }
+
+        if let managed = managedSessions[bundleIdentifier] {
+            kill(managed.pid, SIGTERM)
+            didAttempt = true
+        }
+
+        unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+        return didAttempt
     }
 
-    /// Force terminates an application (`NSRunningApplication.forceTerminate()` or `SIGKILL`).
+    /// Force terminates an application (`NSRunningApplication.forceTerminate()` or `SIGKILL`) across all matching instances.
     @discardableResult
     public func forceKillApp(bundleIdentifier: String) -> Bool {
-        let managed = managedSessions[bundleIdentifier]
-        if let runningApp = runningApps[bundleIdentifier] ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
-            let success = runningApp.forceTerminate()
-            if !success, let pid = managed?.pid ?? Optional(runningApp.processIdentifier) {
-                kill(pid, SIGKILL)
-            }
-            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
-            return true
-        } else if let managed = managed {
-            kill(managed.pid, SIGKILL)
-            unregisterManagedSession(bundleIdentifier: bundleIdentifier)
-            return true
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        var didAttempt = false
+
+        for app in instances {
+            _ = app.forceTerminate()
+            kill(app.processIdentifier, SIGKILL)
+            didAttempt = true
         }
-        return false
+
+        if let runningApp = runningApps[bundleIdentifier], !instances.contains(runningApp) {
+            _ = runningApp.forceTerminate()
+            kill(runningApp.processIdentifier, SIGKILL)
+            didAttempt = true
+        }
+
+        if let managed = managedSessions[bundleIdentifier] {
+            kill(managed.pid, SIGKILL)
+            didAttempt = true
+        }
+
+        unregisterManagedSession(bundleIdentifier: bundleIdentifier)
+        DispatchQueue.main.async {
+            self.runningApps.removeValue(forKey: bundleIdentifier)
+        }
+
+        return didAttempt
     }
 
     /// Gracefully terminates all active managed sessions that were launched with a proxy.
@@ -121,28 +160,42 @@ public final class AppLifecycleManager: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Asynchronously terminates an application and waits until the process has exited or timeout is reached.
+    /// Asynchronously terminates an application with a 3-stage escalating pipeline:
+    /// Stage 1: Graceful `terminate()` / `SIGTERM`
+    /// Stage 2: Verification polling with timeout
+    /// Stage 3: Automatic escalation to `forceTerminate()` / `SIGKILL` if still alive.
     @discardableResult
-    public func terminateAppAndWait(bundleIdentifier: String, timeout: TimeInterval = 1.5) async -> Bool {
+    public func terminateAppAndWait(bundleIdentifier: String, timeout: TimeInterval = 1.2) async -> Bool {
         terminateApp(bundleIdentifier: bundleIdentifier)
 
-        let pollInterval: UInt64 = 100_000_000 // 100ms
+        let pollInterval: UInt64 = 80_000_000 // 80ms
         let start = Date()
 
         while Date().timeIntervalSince(start) < timeout {
             if !isAppRunning(bundleIdentifier: bundleIdentifier) {
+                DispatchQueue.main.async {
+                    self.runningApps.removeValue(forKey: bundleIdentifier)
+                    self.managedSessions.removeValue(forKey: bundleIdentifier)
+                }
                 return true
             }
             try? await Task.sleep(nanoseconds: pollInterval)
         }
 
-        // If still running after timeout, attempt force kill
+        // If still running after timeout, escalate to force kill (Stage 3)
         if isAppRunning(bundleIdentifier: bundleIdentifier) {
             forceKillApp(bundleIdentifier: bundleIdentifier)
             try? await Task.sleep(nanoseconds: pollInterval)
         }
 
-        return !isAppRunning(bundleIdentifier: bundleIdentifier)
+        let isExited = !isAppRunning(bundleIdentifier: bundleIdentifier)
+        if isExited {
+            DispatchQueue.main.async {
+                self.runningApps.removeValue(forKey: bundleIdentifier)
+                self.managedSessions.removeValue(forKey: bundleIdentifier)
+            }
+        }
+        return isExited
     }
 
     // MARK: - Notifications

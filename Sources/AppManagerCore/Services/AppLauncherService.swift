@@ -204,19 +204,46 @@ public final class AppLauncherService: @unchecked Sendable {
 
         do {
             try process.run()
-            let session = ManagedAppSession(
-                bundleIdentifier: app.bundleIdentifier,
-                pid: process.processIdentifier,
-                isProxied: proxyURLString != nil,
-                proxyURLString: proxyURLString,
-                strategy: sessionStrategy
-            )
-            self.lifecycleManager.registerManagedSession(session)
+
+            // Asynchronously resolve the real spawned application PID
+            DispatchQueue.global(qos: .userInitiated).async {
+                for _ in 0..<15 {
+                    if let launchedApp = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleIdentifier).first(where: { !$0.isTerminated }) {
+                        let session = ManagedAppSession(
+                            bundleIdentifier: app.bundleIdentifier,
+                            pid: launchedApp.processIdentifier,
+                            isProxied: proxyURLString != nil,
+                            proxyURLString: proxyURLString,
+                            strategy: sessionStrategy
+                        )
+                        self.lifecycleManager.registerManagedSession(session)
+                        return
+                    }
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            }
+
             completion?(.success(()))
         } catch {
             print("[AppLauncherService] CLI open fallback failed: \(error)")
             // Final Fallback Tier 4: standard system open
             if NSWorkspace.shared.open(app.bundleURL) {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    for _ in 0..<15 {
+                        if let launchedApp = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleIdentifier).first(where: { !$0.isTerminated }) {
+                            let session = ManagedAppSession(
+                                bundleIdentifier: app.bundleIdentifier,
+                                pid: launchedApp.processIdentifier,
+                                isProxied: proxyURLString != nil,
+                                proxyURLString: proxyURLString,
+                                strategy: sessionStrategy
+                            )
+                            self.lifecycleManager.registerManagedSession(session)
+                            return
+                        }
+                        Thread.sleep(forTimeInterval: 0.1)
+                    }
+                }
                 completion?(.success(()))
             } else {
                 completion?(.failure(error))

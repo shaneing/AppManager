@@ -188,17 +188,26 @@ public final class MenuBarViewModel: ObservableObject {
     }
 
     public func stopApp(app: AppItem) {
-        let success = lifecycleManager.terminateApp(bundleIdentifier: app.bundleIdentifier)
-        if success {
-            showMessage("Terminating \(app.name)...")
-        } else {
-            showMessage("Could not terminate \(app.name)")
+        showMessage("Terminating \(app.name)...")
+        Task {
+            let success = await lifecycleManager.terminateAppAndWait(bundleIdentifier: app.bundleIdentifier, timeout: 1.2)
+            await MainActor.run {
+                if success {
+                    showMessage("Stopped \(app.name)")
+                } else {
+                    showMessage("Could not terminate \(app.name)")
+                }
+            }
         }
     }
 
     public func forceKillApp(app: AppItem) {
-        lifecycleManager.forceKillApp(bundleIdentifier: app.bundleIdentifier)
-        showMessage("Force killed \(app.name)")
+        let success = lifecycleManager.forceKillApp(bundleIdentifier: app.bundleIdentifier)
+        if success {
+            showMessage("Force killed \(app.name)")
+        } else {
+            showMessage("Could not force kill \(app.name)")
+        }
     }
 
     public func toggleGlobalProxy() {
