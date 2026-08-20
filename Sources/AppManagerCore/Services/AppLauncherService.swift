@@ -8,15 +8,18 @@ public final class AppLauncherService: @unchecked Sendable {
     private let configStore: ConfigurationStore
     private let lifecycleManager: AppLifecycleManager
     private let netExtManager: NetworkExtensionManager
+    private let shadowAppService: ShadowAppService
 
     public init(
         configStore: ConfigurationStore = .shared,
         lifecycleManager: AppLifecycleManager = .shared,
-        netExtManager: NetworkExtensionManager = .shared
+        netExtManager: NetworkExtensionManager = .shared,
+        shadowAppService: ShadowAppService = .shared
     ) {
         self.configStore = configStore
         self.lifecycleManager = lifecycleManager
         self.netExtManager = netExtManager
+        self.shadowAppService = shadowAppService
     }
 
     /// Launches an application normally using default system routing.
@@ -112,13 +115,15 @@ public final class AppLauncherService: @unchecked Sendable {
 
     private func executeOpenApplication(
         app: AppItem,
+        targetURL: URL? = nil,
         configuration: NSWorkspace.OpenConfiguration,
         sessionStrategy: ProxyStrategy?,
         proxyURLString: String?,
         completion: ((Result<Void, Error>) -> Void)?
     ) {
+        let launchURL = targetURL ?? app.bundleURL
         NSWorkspace.shared.openApplication(
-            at: app.bundleURL,
+            at: launchURL,
             configuration: configuration
         ) { runningApp, error in
             if let error = error {
@@ -132,7 +137,7 @@ public final class AppLauncherService: @unchecked Sendable {
                 retryConfig.arguments = configuration.arguments
 
                 NSWorkspace.shared.openApplication(
-                    at: app.bundleURL,
+                    at: launchURL,
                     configuration: retryConfig
                 ) { retryApp, retryError in
                     if let retryError = retryError {
@@ -141,6 +146,7 @@ public final class AppLauncherService: @unchecked Sendable {
                         // Fallback Tier 3: CLI /usr/bin/open with --env and --args
                         self.executeOpenCliFallback(
                             app: app,
+                            targetURL: launchURL,
                             environment: configuration.environment,
                             arguments: configuration.arguments,
                             sessionStrategy: sessionStrategy,
@@ -179,15 +185,17 @@ public final class AppLauncherService: @unchecked Sendable {
 
     private func executeOpenCliFallback(
         app: AppItem,
+        targetURL: URL? = nil,
         environment: [String: String],
         arguments: [String],
         sessionStrategy: ProxyStrategy?,
         proxyURLString: String?,
         completion: ((Result<Void, Error>) -> Void)?
     ) {
+        let launchURL = targetURL ?? app.bundleURL
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        var openArgs = ["-a", app.bundleURL.path]
+        var openArgs = ["-a", launchURL.path]
 
         // Pass environment variables using --env KEY=VALUE
         for (k, v) in environment {
@@ -227,7 +235,7 @@ public final class AppLauncherService: @unchecked Sendable {
         } catch {
             print("[AppLauncherService] CLI open fallback failed: \(error)")
             // Final Fallback Tier 4: standard system open
-            if NSWorkspace.shared.open(app.bundleURL) {
+            if NSWorkspace.shared.open(launchURL) {
                 DispatchQueue.global(qos: .userInitiated).async {
                     for _ in 0..<15 {
                         if let launchedApp = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleIdentifier).first(where: { !$0.isTerminated }) {
@@ -374,6 +382,10 @@ public final class AppLauncherService: @unchecked Sendable {
             "build/libAppProxyHook.dylib",
             ".build/debug/libAppProxyHook.dylib",
             ".build/release/libAppProxyHook.dylib",
+            ".build/arm64-apple-macosx/debug/libAppProxyHook.dylib",
+            ".build/arm64-apple-macosx/release/libAppProxyHook.dylib",
+            ".build/x86_64-apple-macosx/debug/libAppProxyHook.dylib",
+            ".build/x86_64-apple-macosx/release/libAppProxyHook.dylib",
             "/tmp/libAppProxyHook.dylib"
         ]
 
@@ -406,6 +418,9 @@ public final class AppLauncherService: @unchecked Sendable {
 
         // Inject dynamic library hook
         env["DYLD_INSERT_LIBRARIES"] = dylibPath
+        env["DYLD_FORCE_FLAT_NAMESPACE"] = "1"
+        env["GOPEN_IP"] = proxy.host
+        env["GOPEN_PORT"] = String(proxy.port)
         env["APPMANAGER_PROXY_HOST"] = proxy.host
         env["APPMANAGER_PROXY_PORT"] = String(proxy.port)
         env["APPMANAGER_PROXY_PROTO"] = proxy.proxyProtocol.rawValue
@@ -436,12 +451,35 @@ public final class AppLauncherService: @unchecked Sendable {
         configuration.createsNewApplicationInstance = true
         configuration.activates = true
 
-        executeOpenApplication(
-            app: app,
-            configuration: configuration,
-            sessionStrategy: .dynamicLibHook,
-            proxyURLString: proxy.urlString,
-            completion: completion
-        )
+        let signingInfo = CodeSigningService.shared.inspectCodeSigning(bundleURL: app.bundleURL)
+        if signingInfo.isCompatibleWithDynamicHook {
+            // Compatible out-of-the-box (no Hardened Runtime or has allow-dyld entitlement)
+            executeOpenApplication(
+                app: app,
+                targetURL: nil,
+                configuration: configuration,
+                sessionStrategy: .dynamicLibHook,
+                proxyURLString: proxy.urlString,
+                completion: completion
+            )
+        } else {
+            // Hardened Runtime present: automatically clone, re-sign in user-space, and launch shadow copy
+            Task {
+                do {
+                    let shadowURL = try await shadowAppService.getOrPrepareShadowApp(for: app)
+                    self.executeOpenApplication(
+                        app: app,
+                        targetURL: shadowURL,
+                        configuration: configuration,
+                        sessionStrategy: .dynamicLibHook,
+                        proxyURLString: proxy.urlString,
+                        completion: completion
+                    )
+                } catch {
+                    print("[AppLauncherService] Strategy D shadow preparation failed for \(app.name): \(error.localizedDescription). Falling back to Strategy A...")
+                    self.launchWithStrategyA(app: app, proxy: proxy, completion: completion)
+                }
+            }
+        }
     }
 }

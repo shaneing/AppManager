@@ -281,16 +281,8 @@ public final class MenuBarViewModel: ObservableObject {
         return CodeSigningService.shared.inspectCodeSigning(bundleURL: app.bundleURL)
     }
 
-    public func resignAppAdHoc(app: AppItem) async -> Result<Void, Error> {
-        showMessage("Re-signing \(app.name) ad-hoc...")
-        do {
-            try await CodeSigningService.shared.performAdHocResign(bundleURL: app.bundleURL)
-            showMessage("✅ Successfully re-signed \(app.name)")
-            return .success(())
-        } catch {
-            showMessage("❌ Failed to re-sign \(app.name): \(error.localizedDescription)")
-            return .failure(error)
-        }
+    public func isShadowCopyValid(for app: AppItem) -> Bool {
+        return ShadowAppService.shared.isShadowValid(for: app)
     }
 
     private func showMessage(_ msg: String) {

@@ -13,7 +13,6 @@ public struct AppConfigView: View {
     @State private var extraEnvVal: String = ""
     @State private var extraEnvVars: [String: String]
     @State private var codeSigningInfo: CodeSigningInfo? = nil
-    @State private var isResigning: Bool = false
 
     public init(app: AppItem, viewModel: MenuBarViewModel) {
         self.app = app
@@ -122,53 +121,37 @@ public struct AppConfigView: View {
                                         HStack(spacing: 6) {
                                             Image(systemName: "checkmark.seal.fill")
                                                 .foregroundColor(.green)
-                                            Text("Ready for Dynamic Hooking")
-                                                .font(.caption)
-                                                .foregroundColor(.primary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Ready for Dynamic Hooking")
+                                                    .font(.caption).bold()
+                                                    .foregroundColor(.primary)
+                                                Text("App allows direct DYLD injection without shadow cloning.")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
                                         }
                                         .padding(8)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .background(Color.green.opacity(0.12))
                                         .cornerRadius(6)
                                     } else {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            HStack(spacing: 6) {
-                                                Image(systemName: "exclamationmark.triangle.fill")
-                                                    .foregroundColor(.orange)
-                                                Text("Hardened Runtime Detected")
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Image(systemName: "doc.on.doc.fill")
+                                                .foregroundColor(.accentColor)
+                                                .font(.system(size: 14))
+                                                .padding(.top, 2)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text("Automatic Shadow Copy Enabled")
                                                     .font(.caption).bold()
-                                                    .foregroundColor(.orange)
+                                                    .foregroundColor(.primary)
+                                                Text("This app enforces macOS Hardened Runtime. AppManager will automatically prepare and launch a non-destructive user-space shadow copy without modifying your original app in /Applications.")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
                                             }
-                                            Text("This app enforces macOS Hardened Runtime which strips DYLD hooks on launch.")
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-
-                                            Button {
-                                                isResigning = true
-                                                Task {
-                                                    _ = await viewModel.resignAppAdHoc(app: app)
-                                                    codeSigningInfo = viewModel.checkCodeSigning(for: app)
-                                                    isResigning = false
-                                                }
-                                            } label: {
-                                                HStack(spacing: 4) {
-                                                    if isResigning {
-                                                        ProgressView()
-                                                            .scaleEffect(0.6)
-                                                            .frame(width: 12, height: 12)
-                                                    } else {
-                                                        Image(systemName: "signature")
-                                                    }
-                                                    Text(isResigning ? "Re-signing..." : "Prepare for Hooking (Ad-hoc Re-sign)")
-                                                }
-                                                .font(.caption)
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(isResigning)
                                         }
                                         .padding(8)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(Color.orange.opacity(0.12))
+                                        .background(Color.accentColor.opacity(0.08))
                                         .cornerRadius(6)
                                     }
                                 }

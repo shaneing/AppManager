@@ -17,6 +17,8 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <dlfcn.h>
+#include <poll.h>
+#include <sys/time.h>
 
 #define APPMANAGER_HOOK_VERSION "1.0.0"
 #define LOG_PREFIX "[AppProxyHook] "

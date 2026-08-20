@@ -1,189 +1,243 @@
-#include "hook_common.h"
-#include "fake_dns.h"
-#include "http_connect.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <errno.h>
 
-// Function pointer types
-typedef int (*connect_func_t)(int, const struct sockaddr *, socklen_t);
-typedef int (*connectx_func_t)(int, const sa_endpoints_t *, sae_associd_t, unsigned int, const struct iovec *, unsigned int, size_t *, sae_connid_t *);
-typedef int (*getaddrinfo_func_t)(const char *, const char *, const struct addrinfo *, struct addrinfo **);
-typedef void (*freeaddrinfo_func_t)(struct addrinfo *);
+#define APPMANAGER_HOOK_VERSION "1.1.0"
 
-static connect_func_t orig_connect = NULL;
-static connectx_func_t orig_connectx = NULL;
-static getaddrinfo_func_t orig_getaddrinfo = NULL;
-static freeaddrinfo_func_t orig_freeaddrinfo = NULL;
-
-int real_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-    if (!orig_connect) {
-        orig_connect = (connect_func_t)dlsym(RTLD_NEXT, "connect");
-        if (!orig_connect) {
-            orig_connect = (connect_func_t)dlsym(RTLD_DEFAULT, "connect");
-        }
-    }
-    return orig_connect ? orig_connect(sockfd, addr, addrlen) : -1;
-}
-
-int real_connectx(int s, const sa_endpoints_t *endpoints, sae_associd_t associd,
-                  unsigned int flags, const struct iovec *iov, unsigned int iovcnt,
-                  size_t *len, sae_connid_t *connid) {
-    if (!orig_connectx) {
-        orig_connectx = (connectx_func_t)dlsym(RTLD_NEXT, "connectx");
-        if (!orig_connectx) {
-            orig_connectx = (connectx_func_t)dlsym(RTLD_DEFAULT, "connectx");
-        }
-    }
-    return orig_connectx ? orig_connectx(s, endpoints, associd, flags, iov, iovcnt, len, connid) : -1;
-}
-
-int real_getaddrinfo(const char *node, const char *service,
-                     const struct addrinfo *hints, struct addrinfo **res) {
-    if (!orig_getaddrinfo) {
-        orig_getaddrinfo = (getaddrinfo_func_t)dlsym(RTLD_NEXT, "getaddrinfo");
-        if (!orig_getaddrinfo) {
-            orig_getaddrinfo = (getaddrinfo_func_t)dlsym(RTLD_DEFAULT, "getaddrinfo");
-        }
-    }
-    return orig_getaddrinfo ? orig_getaddrinfo(node, service, hints, res) : EAI_FAIL;
-}
-
-void real_freeaddrinfo(struct addrinfo *ai) {
-    if (!orig_freeaddrinfo) {
-        orig_freeaddrinfo = (freeaddrinfo_func_t)dlsym(RTLD_NEXT, "freeaddrinfo");
-        if (!orig_freeaddrinfo) {
-            orig_freeaddrinfo = (freeaddrinfo_func_t)dlsym(RTLD_DEFAULT, "freeaddrinfo");
-        }
-    }
-    if (orig_freeaddrinfo) {
-        orig_freeaddrinfo(ai);
+// Logging helper
+static inline void hook_log(const char *fmt, ...) {
+    const char *debug = getenv("APPMANAGER_HOOK_DEBUG");
+    if (debug && (strcmp(debug, "1") == 0 || strcasecmp(debug, "true") == 0)) {
+        va_list args;
+        va_start(args, fmt);
+        fprintf(stderr, "[AppProxyHook] ");
+        vfprintf(stderr, fmt, args);
+        fprintf(stderr, "\n");
+        va_end(args);
     }
 }
 
-// Hook implementations
-int hook_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+#if defined(__APPLE__)
+#define REAL_CONNECT connect
+#else
+typedef int (*connect_func)(int, const struct sockaddr *, socklen_t);
+static connect_func original_connect = NULL;
+#define REAL_CONNECT original_connect
+#endif
+
+// Base64 encoding for Basic Auth
+static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void base64_encode(const char *src, char *dst, size_t dst_len) {
+    size_t src_len = strlen(src);
+    size_t i = 0, j = 0;
+
+    while (i < src_len && (j + 4) < dst_len) {
+        uint32_t octet_a = i < src_len ? (unsigned char)src[i++] : 0;
+        uint32_t octet_b = i < src_len ? (unsigned char)src[i++] : 0;
+        uint32_t octet_c = i < src_len ? (unsigned char)src[i++] : 0;
+
+        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+
+        dst[j++] = b64_table[(triple >> 18) & 0x3F];
+        dst[j++] = b64_table[(triple >> 12) & 0x3F];
+        dst[j++] = (i > src_len + 1) ? '=' : b64_table[(triple >> 6) & 0x3F];
+        dst[j++] = (i > src_len) ? '=' : b64_table[triple & 0x3F];
+    }
+    dst[j] = '\0';
+}
+
+int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+#if !defined(__APPLE__)
+    if (!original_connect) {
+        original_connect = (connect_func)dlsym(RTLD_NEXT, "connect");
+    }
+#endif
+
     if (!addr) {
-        return real_connect(sockfd, addr, addrlen);
+        return REAL_CONNECT(sockfd, addr, addrlen);
     }
 
-    if (http_proxy_is_bypass(addr)) {
-        return real_connect(sockfd, addr, addrlen);
+    // Only intercept IPv4 connections
+    if (addr->sa_family != AF_INET) {
+        return REAL_CONNECT(sockfd, addr, addrlen);
     }
 
-    if (addr->sa_family == AF_INET) {
-        const struct sockaddr_in *in = (const struct sockaddr_in *)addr;
-        uint16_t port = ntohs(in->sin_port);
+    const struct sockaddr_in *target_addr = (const struct sockaddr_in *)addr;
 
-        // Check for synthetic fake IP from getaddrinfo
-        char hostname[256] = {0};
-        if (fake_dns_reverse_lookup(in->sin_addr, hostname, sizeof(hostname))) {
-            return http_proxy_establish_tunnel(sockfd, hostname, port);
-        }
+    // Resolve Proxy IP and Port from environment
+    const char *proxy_ip_str = getenv("APPMANAGER_PROXY_HOST");
+    if (!proxy_ip_str) proxy_ip_str = getenv("GOPEN_IP");
 
-        // Direct IP connection
-        char ip_str[INET_ADDRSTRLEN] = {0};
-        inet_ntop(AF_INET, &(in->sin_addr), ip_str, sizeof(ip_str));
-        return http_proxy_establish_tunnel(sockfd, ip_str, port);
-    } else if (addr->sa_family == AF_INET6) {
-        const struct sockaddr_in6 *in6 = (const struct sockaddr_in6 *)addr;
-        uint16_t port = ntohs(in6->sin6_port);
-        char ip6_str[INET6_ADDRSTRLEN] = {0};
-        inet_ntop(AF_INET6, &(in6->sin6_addr), ip6_str, sizeof(ip6_str));
-        return http_proxy_establish_tunnel(sockfd, ip6_str, port);
-    }
+    const char *proxy_port_str = getenv("APPMANAGER_PROXY_PORT");
+    if (!proxy_port_str) proxy_port_str = getenv("GOPEN_PORT");
 
-    return real_connect(sockfd, addr, addrlen);
-}
+    if (!proxy_ip_str || !proxy_port_str) {
+        // Check HTTP_PROXY
+        const char *http_proxy = getenv("HTTP_PROXY");
+        if (!http_proxy) http_proxy = getenv("http_proxy");
+        if (!http_proxy) http_proxy = getenv("ALL_PROXY");
+        if (!http_proxy) http_proxy = getenv("all_proxy");
 
-int hook_connectx(int s, const sa_endpoints_t *endpoints, sae_associd_t associd,
-                  unsigned int flags, const struct iovec *iov, unsigned int iovcnt,
-                  size_t *len, sae_connid_t *connid) {
-    if (endpoints && endpoints->sae_dstaddr) {
-        if (!http_proxy_is_bypass(endpoints->sae_dstaddr)) {
-            int res = hook_connect(s, endpoints->sae_dstaddr, endpoints->sae_dstaddrlen);
-            if (res == 0 && len) {
-                *len = 0;
-            }
-            return res;
-        }
-    }
-    return real_connectx(s, endpoints, associd, flags, iov, iovcnt, len, connid);
-}
+        if (http_proxy && strlen(http_proxy) > 0) {
+            static char parsed_host[128] = {0};
+            static char parsed_port[16] = "7890";
+            const char *p = http_proxy;
+            if (strncmp(p, "http://", 7) == 0) p += 7;
+            else if (strncmp(p, "https://", 8) == 0) p += 8;
 
-// Special magic value for synthetic addrinfo identification
-#define SYNTHETIC_AI_CANARY 0x4150504D // "APPM"
+            const char *at = strchr(p, '@');
+            if (at) p = at + 1;
 
-typedef struct SyntheticAddrInfo {
-    struct addrinfo ai;
-    struct sockaddr_in sin;
-    uint32_t canary;
-} SyntheticAddrInfo;
-
-int hook_getaddrinfo(const char *node, const char *service,
-                     const struct addrinfo *hints, struct addrinfo **res) {
-    if (!node || !res) {
-        return real_getaddrinfo(node, service, hints, res);
-    }
-
-    // Attempt Fake-IP mapping for remote hostnames
-    struct in_addr fake_addr;
-    if (fake_dns_lookup_or_insert(node, &fake_addr)) {
-        uint16_t port = 0;
-        if (service) {
-            int p = atoi(service);
-            if (p > 0 && p <= 65535) {
-                port = (uint16_t)p;
-            } else {
-                struct servent *se = getservbyname(service, "tcp");
-                if (se) {
-                    port = ntohs(se->s_port);
+            const char *colon = strchr(p, ':');
+            if (colon) {
+                size_t host_len = (size_t)(colon - p);
+                if (host_len < sizeof(parsed_host)) {
+                    strncpy(parsed_host, p, host_len);
+                    strncpy(parsed_port, colon + 1, sizeof(parsed_port) - 1);
                 }
+            } else {
+                strncpy(parsed_host, p, sizeof(parsed_host) - 1);
             }
+            proxy_ip_str = parsed_host;
+            proxy_port_str = parsed_port;
         }
-
-        SyntheticAddrInfo *synth = (SyntheticAddrInfo *)calloc(1, sizeof(SyntheticAddrInfo));
-        if (!synth) {
-            return EAI_MEMORY;
-        }
-
-        synth->canary = SYNTHETIC_AI_CANARY;
-        synth->sin.sin_family = AF_INET;
-        synth->sin.sin_port = htons(port);
-        synth->sin.sin_addr = fake_addr;
-
-        synth->ai.ai_family = AF_INET;
-        synth->ai.ai_socktype = (hints && hints->ai_socktype) ? hints->ai_socktype : SOCK_STREAM;
-        synth->ai.ai_protocol = (hints && hints->ai_protocol) ? hints->ai_protocol : IPPROTO_TCP;
-        synth->ai.ai_addrlen = sizeof(struct sockaddr_in);
-        synth->ai.ai_addr = (struct sockaddr *)&synth->sin;
-        synth->ai.ai_canonname = strdup(node);
-        synth->ai.ai_next = NULL;
-
-        *res = &synth->ai;
-        hook_log("Intercepted getaddrinfo('%s') -> Fake IP 198.18.%u.%u",
-                 node, (ntohl(fake_addr.s_addr) >> 8) & 0xFF, ntohl(fake_addr.s_addr) & 0xFF);
-        return 0;
     }
 
-    return real_getaddrinfo(node, service, hints, res);
-}
-
-void hook_freeaddrinfo(struct addrinfo *ai) {
-    if (!ai) return;
-
-    // Check if this was allocated by our hook_getaddrinfo
-    SyntheticAddrInfo *synth = (SyntheticAddrInfo *)ai;
-    if (synth->canary == SYNTHETIC_AI_CANARY) {
-        if (synth->ai.ai_canonname) {
-            free(synth->ai.ai_canonname);
-        }
-        free(synth);
-        return;
+    if (!proxy_ip_str || !proxy_port_str || strlen(proxy_ip_str) == 0) {
+        return REAL_CONNECT(sockfd, addr, addrlen);
     }
 
-    real_freeaddrinfo(ai);
+    // Avoid proxying loopback / local connections
+    uint32_t target_ip = ntohl(target_addr->sin_addr.s_addr);
+    if ((target_ip & 0xFF000000) == 0x7F000000 || target_ip == 0 || target_ip == 0xFFFFFFFF) {
+        return REAL_CONNECT(sockfd, addr, addrlen);
+    }
+
+    // Prepare proxy address
+    struct sockaddr_in proxy_addr;
+    memset(&proxy_addr, 0, sizeof(proxy_addr));
+    proxy_addr.sin_family = AF_INET;
+    proxy_addr.sin_port = htons((uint16_t)atoi(proxy_port_str));
+    if (inet_pton(AF_INET, proxy_ip_str, &proxy_addr.sin_addr) <= 0) {
+        struct hostent *he = gethostbyname(proxy_ip_str);
+        if (!he || !he->h_addr_list[0]) {
+            return REAL_CONNECT(sockfd, addr, addrlen);
+        }
+        memcpy(&proxy_addr.sin_addr, he->h_addr_list[0], sizeof(struct in_addr));
+    }
+
+    // Avoid double-proxying if target is already the proxy server
+    if (target_addr->sin_addr.s_addr == proxy_addr.sin_addr.s_addr &&
+        target_addr->sin_port == proxy_addr.sin_port) {
+        return REAL_CONNECT(sockfd, addr, addrlen);
+    }
+
+    // Check if socket is non-blocking
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    int is_nonblocking = (flags >= 0) && ((flags & O_NONBLOCK) != 0);
+
+    // Temporarily make socket blocking for the HTTP CONNECT handshake
+    if (is_nonblocking) {
+        fcntl(sockfd, F_SETFL, flags & ~O_NONBLOCK);
+    }
+
+    // Set a short handshake timeout so we never hang indefinitely
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    // Connect to proxy server
+    hook_log("Intercepted connect() -> routing to proxy %s:%s", proxy_ip_str, proxy_port_str);
+    int res = REAL_CONNECT(sockfd, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr));
+    if (res < 0) {
+        hook_log("Failed to connect to proxy: errno %d (%s)", errno, strerror(errno));
+        if (is_nonblocking) fcntl(sockfd, F_SETFL, flags);
+        return res;
+    }
+
+    // Extract target IP and port
+    char target_ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(target_addr->sin_addr), target_ip_str, INET_ADDRSTRLEN);
+    int target_port = ntohs(target_addr->sin_port);
+
+    // Optional proxy authentication header
+    char auth_header[256] = {0};
+    const char *auth_env = getenv("APPMANAGER_PROXY_AUTH");
+    if (auth_env && strlen(auth_env) > 0) {
+        char b64[192] = {0};
+        base64_encode(auth_env, b64, sizeof(b64));
+        snprintf(auth_header, sizeof(auth_header), "Proxy-Authorization: Basic %s\r\n", b64);
+    }
+
+    // Construct HTTP CONNECT request
+    char req[512];
+    int req_len = snprintf(req, sizeof(req),
+        "CONNECT %s:%d HTTP/1.1\r\n"
+        "Host: %s:%d\r\n"
+        "User-Agent: AppManagerProxyHook/%s\r\n"
+        "Proxy-Connection: Keep-Alive\r\n"
+        "%s\r\n",
+        target_ip_str, target_port,
+        target_ip_str, target_port,
+        APPMANAGER_HOOK_VERSION,
+        auth_header
+    );
+
+    if (send(sockfd, req, (size_t)req_len, 0) < 0) {
+        hook_log("Failed to send HTTP CONNECT request");
+        if (is_nonblocking) fcntl(sockfd, F_SETFL, flags);
+        return -1;
+    }
+
+    // Read response (looking for "HTTP/1.x 200")
+    char resp[1024];
+    int total_read = 0;
+    while (total_read < (int)sizeof(resp) - 1) {
+        ssize_t n = recv(sockfd, resp + total_read, 1, 0);
+        if (n <= 0) {
+            break;
+        }
+        total_read += (int)n;
+        resp[total_read] = '\0';
+        if (strstr(resp, "\r\n\r\n")) {
+            break;
+        }
+    }
+
+    // Clear timeouts
+    struct timeval zero_tv = { .tv_sec = 0, .tv_usec = 0 };
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &zero_tv, sizeof(zero_tv));
+    setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &zero_tv, sizeof(zero_tv));
+
+    // Restore non-blocking state if original socket was non-blocking
+    if (is_nonblocking) {
+        fcntl(sockfd, F_SETFL, flags);
+    }
+
+    if (!strstr(resp, "HTTP/1.1 200") && !strstr(resp, "HTTP/1.0 200") && !strstr(resp, "HTTP/2 200")) {
+        hook_log("Proxy rejected CONNECT:\n%s", resp);
+        errno = ECONNREFUSED;
+        return -1;
+    }
+
+    hook_log("Tunnel established successfully to %s:%d", target_ip_str, target_port);
+    return 0;
 }
 
-// Dyld interpose mapping tables
-DYLD_INTERPOSE(hook_connect, connect)
-DYLD_INTERPOSE(hook_connectx, connectx)
-DYLD_INTERPOSE(hook_getaddrinfo, getaddrinfo)
-DYLD_INTERPOSE(hook_freeaddrinfo, freeaddrinfo)
+#if defined(__APPLE__)
+#define DYLD_INTERPOSE(_replacement,_replacee) \
+   __attribute__((used)) static struct{ const void* replacement; const void* replacee; } _interpose_##_replacee \
+   __attribute__((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
+DYLD_INTERPOSE(my_connect, connect)
+#endif
